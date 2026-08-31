@@ -173,14 +173,31 @@ void DisplayService::renderMetric(MetricId metric, const ExternalValues& values)
 void DisplayService::renderClock(const struct tm& now) {
   if (!display_) return;
 
-  const int hhmm = now.tm_hour * 100 + now.tm_min;
-  const uint8_t colonMask = clockColonVisible(static_cast<uint8_t>(now.tm_sec))
-                                ? TM1637_COLON_MASK
-                                : 0;
-  display_->showNumberDecEx(hhmm, colonMask, true, 4, 0);
+  ClockFrame frame;
+  if (!formatClockFrame(static_cast<uint8_t>(now.tm_hour),
+                        static_cast<uint8_t>(now.tm_min),
+                        static_cast<uint8_t>(now.tm_sec), frame)) {
+    renderError();
+    return;
+  }
 
-  // Keep the web status text stable as HH:MM; only the physical colon blinks.
-  snprintf(lastRenderedText_, sizeof(lastRenderedText_), "%02d:%02d", now.tm_hour, now.tm_min);
+  uint8_t segments[4] = {0, 0, 0, 0};
+  for (uint8_t i = 0; i < 4; ++i) {
+    const char c = frame.chars[i];
+    if (c >= '0' && c <= '9') {
+      segments[i] = display_->encodeDigit(static_cast<uint8_t>(c - '0'));
+    }
+  }
+
+  // On common four-digit TM1637 clock modules the decimal-point segment of
+  // digit 2 drives the center colon. Keep it blinking once per second.
+  if (frame.colonVisible) {
+    segments[1] |= TM1637_CENTER_COLON_SEGMENT;
+  }
+  display_->setSegments(segments);
+
+  // The web status mirrors the no-leading-zero clock representation.
+  snprintf(lastRenderedText_, sizeof(lastRenderedText_), "%d:%02d", now.tm_hour, now.tm_min);
   lastScaledThousands_ = false;
 }
 

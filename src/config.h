@@ -64,9 +64,9 @@ static constexpr uint16_t MIN_ALTERNATE_SECONDS = 2;
 static constexpr uint16_t MAX_ALTERNATE_SECONDS = 120;
 static constexpr uint32_t DISPLAY_BOOT_SELF_TEST_MS = 900UL;
 
-// Common TM1637 4-digit modules use this bit for the center colon.
-// Decimal-point behavior depends on the specific module wiring.
-static constexpr uint8_t TM1637_COLON_MASK = 0b01000000;
+// On common four-digit TM1637 clock modules, segment DP on digit 2 drives
+// the center colon when raw segments are written with setSegments().
+static constexpr uint8_t TM1637_CENTER_COLON_SEGMENT = 0x80;
 
 // ESP8266 GPIO6..GPIO11 are connected to the SPI flash and must never be used.
 // GPIO0, GPIO2 and GPIO15 are boot strap pins; GPIO1/GPIO3 are UART pins. They

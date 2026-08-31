@@ -127,6 +127,21 @@ bool formatMetricFrame(MetricId metric, const NumericValue& input, DisplayFrame&
   }
 }
 
+bool formatClockFrame(uint8_t hour, uint8_t minute, uint8_t second, ClockFrame& out) {
+  out = ClockFrame();
+  if (hour > 23U || minute > 59U || second > 59U) return false;
+
+  if (hour < 10U) {
+    snprintf(out.chars, sizeof(out.chars), " %u%02u",
+             static_cast<unsigned>(hour), static_cast<unsigned>(minute));
+  } else {
+    snprintf(out.chars, sizeof(out.chars), "%02u%02u",
+             static_cast<unsigned>(hour), static_cast<unsigned>(minute));
+  }
+  out.colonVisible = clockColonVisible(second);
+  return true;
+}
+
 bool clockColonVisible(uint8_t second) {
   return (second % 2U) == 0U;
 }

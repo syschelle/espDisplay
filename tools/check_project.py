@@ -145,7 +145,11 @@ def test_architecture_guards() -> None:
     assert "Settings migrated from schema 1 to schema 2" in settings
     assert "TM1637 initialized: CLK GPIO%u, DIO GPIO%u" in display
     assert "new (displayStorage_) TM1637Display" in display
-    assert "clockColonVisible" in display, "clock display must implement one-second colon blinking"
+    display_format = (SRC / "display_format.cpp").read_text(encoding="utf-8")
+    assert "clockColonVisible" in display_format, "clock formatter must implement one-second colon blinking"
+    assert "formatClockFrame" in display, "clock display must use the tested right-aligned clock formatter"
+    assert "TM1637_CENTER_COLON_SEGMENT" in display, "clock display must drive the center colon in raw segment mode"
+    assert '" %u%02u"' in display_format, "single-digit hours must omit the leading zero and remain right-aligned"
     assert "lastClockSecond_" in display, "clock rendering must track seconds independently from metric refresh"
     assert "displayUpdateMs" in display and "showClock" in display
     assert 'root["clkGpio"]' in web and 'root["dioGpio"]' in web
@@ -160,6 +164,10 @@ def test_architecture_guards() -> None:
     ota = (SRC / "ota.cpp").read_text(encoding="utf-8")
     cfg = (SRC / "config.h").read_text(encoding="utf-8")
     assert 'OTA_GITHUB_REPO[] = "espDisplay"' in cfg
+    assert "downloadHttp.setReuse(false)" in ota, "OTA GitHub redirects must not reuse the connection"
+    assert "downloadHttp.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS)" in ota
+    assert "ESPhttpUpdate.setClientTimeout(30000)" in ota
+    assert "ESPhttpUpdate.update(downloadHttp, FW_VERSION)" in ota
     assert "GrowTent" not in ota
 
 

@@ -188,7 +188,23 @@ bool OtaService::install() {
   client.setInsecure();
   client.setTimeout(30);
 
+  // GitHub release assets redirect from github.com to a signed CDN URL.
+  // ESP8266HTTPClient can fail while following such redirects when the
+  // connection is reused. Build the HTTPClient explicitly and disable reuse
+  // so every redirect is handled over a fresh connection.
+  HTTPClient downloadHttp;
+  downloadHttp.setReuse(false);
+  downloadHttp.setTimeout(30000);
+  downloadHttp.setRedirectLimit(5);
+  downloadHttp.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
+  downloadHttp.useHTTP10(true);
+  if (!downloadHttp.begin(client, status_.firmwareUrl)) {
+    fail("Firmware download initialization failed");
+    return false;
+  }
+
   ESPhttpUpdate.rebootOnUpdate(false);
+  ESPhttpUpdate.setClientTimeout(30000);
   ESPhttpUpdate.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
   ESPhttpUpdate.setLedPin(-1);
   ESPhttpUpdate.onStart([]() {
@@ -203,8 +219,7 @@ bool OtaService::install() {
     appLog.error("OTA", message);
   });
 
-  const HTTPUpdateResult result =
-      ESPhttpUpdate.update(client, status_.firmwareUrl, FW_VERSION);
+  const HTTPUpdateResult result = ESPhttpUpdate.update(downloadHttp, FW_VERSION);
 
   if (result == HTTP_UPDATE_OK) {
     appLog.info("OTA", "Update completed; reboot required");

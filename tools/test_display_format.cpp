@@ -49,6 +49,27 @@ int main() {
   assert(clockColonVisible(58));
   assert(!clockColonVisible(59));
 
+  // Clock digits are right-aligned. Single-digit hours use only one hour
+  // position, while minutes always keep both digits.
+  ClockFrame clock;
+  assert(formatClockFrame(9, 5, 0, clock));
+  assert(strcmp(clock.chars, " 905") == 0);
+  assert(clock.colonVisible);
+
+  assert(formatClockFrame(9, 5, 1, clock));
+  assert(strcmp(clock.chars, " 905") == 0);
+  assert(!clock.colonVisible);
+
+  assert(formatClockFrame(0, 5, 2, clock));
+  assert(strcmp(clock.chars, " 005") == 0);
+
+  assert(formatClockFrame(12, 34, 3, clock));
+  assert(strcmp(clock.chars, "1234") == 0);
+
+  assert(!formatClockFrame(24, 0, 0, clock));
+  assert(!formatClockFrame(12, 60, 0, clock));
+  assert(!formatClockFrame(12, 0, 60, clock));
+
   puts("display_format tests passed");
   return 0;
 }
