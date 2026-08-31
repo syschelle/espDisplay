@@ -145,6 +145,9 @@ def test_architecture_guards() -> None:
     assert "Settings migrated from schema 1 to schema 2" in settings
     assert "TM1637 initialized: CLK GPIO%u, DIO GPIO%u" in display
     assert "new (displayStorage_) TM1637Display" in display
+    assert "clockColonVisible" in display, "clock display must implement one-second colon blinking"
+    assert "lastClockSecond_" in display, "clock rendering must track seconds independently from metric refresh"
+    assert "displayUpdateMs" in display and "showClock" in display
     assert 'root["clkGpio"]' in web and 'root["dioGpio"]' in web
     assert "restartScheduled" in web
     assert "sendProgmemAsset" in web

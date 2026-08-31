@@ -126,3 +126,7 @@ bool formatMetricFrame(MetricId metric, const NumericValue& input, DisplayFrame&
       return false;
   }
 }
+
+bool clockColonVisible(uint8_t second) {
+  return (second % 2U) == 0U;
+}

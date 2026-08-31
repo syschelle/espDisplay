@@ -11,3 +11,6 @@ struct DisplayFrame {
 };
 
 bool formatMetricFrame(MetricId metric, const NumericValue& value, DisplayFrame& out);
+
+// The TM1637 center colon is lit on even seconds and dark on odd seconds.
+bool clockColonVisible(uint8_t second);

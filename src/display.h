@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Arduino.h>
+#include <time.h>
 #include <TM1637Display.h>
 
 #include "display_format.h"
@@ -28,6 +29,9 @@ class DisplayService {
   uint8_t clkGpio_ = 255;
   uint8_t dioGpio_ = 255;
   uint32_t lastUpdateMs_ = 0;
+  uint32_t lastClockPollMs_ = 0;
+  int8_t lastClockSecond_ = -1;
+  bool lastRenderedWasClock_ = false;
   char lastRenderedText_[8] = "----";
   bool lastScaledThousands_ = false;
   bool lastEnabled_ = true;
@@ -35,7 +39,7 @@ class DisplayService {
 
   const NumericValue* metricValue(MetricId metric, const ExternalValues& values) const;
   void renderMetric(MetricId metric, const ExternalValues& values);
-  void renderClock();
+  void renderClock(const struct tm& now);
   void renderFrame(const DisplayFrame& frame);
   void renderError();
   void rememberFrame(const DisplayFrame& frame);

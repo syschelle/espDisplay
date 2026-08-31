@@ -42,6 +42,13 @@ int main() {
   assert(!formatMetricFrame(MetricId::GridImportW, missing, invalid));
   assert(!invalid.valid);
 
+
+  // Clock colon: visible on even seconds, hidden on odd seconds.
+  assert(clockColonVisible(0));
+  assert(!clockColonVisible(1));
+  assert(clockColonVisible(58));
+  assert(!clockColonVisible(59));
+
   puts("display_format tests passed");
   return 0;
 }

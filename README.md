@@ -296,7 +296,7 @@ Version 0.1.1 restricts metadata and firmware to the configured GitHub project b
 
 `.github/workflows/release-firmware.yml` builds the `d1_mini` ESP8266 environment on pushes and pull requests to `main`. Tags matching `v*` additionally create/update the GitHub Release.
 
-For a tag such as `v0.1.1`, the workflow:
+For a tag such as `v0.1.2`, the workflow:
 
 1. Validates that the tag exactly matches `FW_VERSION` in `src/version.h`.
 2. Installs PlatformIO.
@@ -314,7 +314,7 @@ The project starts at **v0.1.0**.
 `src/version.h` is the firmware's version source of truth:
 
 ```cpp
-#define FW_VERSION "v0.1.1"
+#define FW_VERSION "v0.1.2"
 ```
 
 The tag validation step prevents a GitHub release whose tag differs from the compiled firmware version. Every published functional change must receive a new version; never replace behavior under an already published version.
@@ -389,6 +389,8 @@ Apache License 2.0. See `LICENSE`.
 
 ### Clock-only operation
 In **Clock only** mode, the TM1637 shows only the NTP-synchronized local time. The external API is optional and the API host may be left empty. The metric and alternation controls are not required in this mode.
+
+Starting with **v0.1.2**, the TM1637 center colon blinks once per second while the clock is visible. The colon is lit on even seconds and dark on odd seconds. This timing is independent of the configured metric/display refresh interval, so a slow value refresh such as 4000 ms does not slow down the clock colon. The same behavior is used during the clock phase of the alternating metric/clock mode.
 
 
 ### Browser cache after firmware updates

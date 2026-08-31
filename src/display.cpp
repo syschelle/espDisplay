@@ -36,6 +36,9 @@ void DisplayService::begin(const AppSettings& cfg) {
   }
 
   lastUpdateMs_ = 0;
+  lastClockPollMs_ = 0;
+  lastClockSecond_ = -1;
+  lastRenderedWasClock_ = false;
 }
 
 void DisplayService::applySettings(const AppSettings& cfg) {
@@ -53,6 +56,9 @@ void DisplayService::applySettings(const AppSettings& cfg) {
   }
 
   lastUpdateMs_ = 0;
+  lastClockPollMs_ = 0;
+  lastClockSecond_ = -1;
+  lastRenderedWasClock_ = false;
 }
 
 void DisplayService::tick(const AppSettings& cfg, const ExternalValues& values) {
@@ -67,33 +73,60 @@ void DisplayService::tick(const AppSettings& cfg, const ExternalValues& values) 
     applySettings(cfg);
   }
 
+  bool showClock = cfg.displayMode == DisplayMode::Clock;
+  if (cfg.displayMode == DisplayMode::Alternate) {
+    const uint32_t phaseMs = static_cast<uint32_t>(cfg.alternateSeconds) * 1000UL;
+    showClock = phaseMs > 0 && ((millis() / phaseMs) % 2UL) == 1UL;
+  }
+
+  // Clock rendering is deliberately independent from displayUpdateMs. A user may
+  // choose a slow metric refresh (for example 4000 ms), but the center colon
+  // still has to toggle exactly once per second while the clock is visible.
+  if (showClock) {
+    const uint32_t nowMs = millis();
+    if (lastClockPollMs_ != 0 &&
+        static_cast<uint32_t>(nowMs - lastClockPollMs_) < 200UL) {
+      return;
+    }
+    lastClockPollMs_ = nowMs;
+
+    struct tm now;
+    if (!timeService.getLocalTm(now)) {
+      if (lastUpdateMs_ == 0 ||
+          static_cast<uint32_t>(nowMs - lastUpdateMs_) >= 1000UL) {
+        renderError();
+        lastUpdateMs_ = nowMs;
+      }
+      lastRenderedWasClock_ = false;
+      lastClockSecond_ = -1;
+      return;
+    }
+
+    if (lastRenderedWasClock_ && lastClockSecond_ == now.tm_sec) {
+      return;
+    }
+
+    renderClock(now);
+    lastClockSecond_ = static_cast<int8_t>(now.tm_sec);
+    lastRenderedWasClock_ = true;
+    lastUpdateMs_ = nowMs;
+    return;
+  }
+
+  if (lastRenderedWasClock_) {
+    // Change back to the metric immediately when an alternate clock phase ends.
+    lastUpdateMs_ = 0;
+  }
+  lastRenderedWasClock_ = false;
+  lastClockSecond_ = -1;
+  lastClockPollMs_ = 0;
+
   if (lastUpdateMs_ != 0 &&
       static_cast<uint32_t>(millis() - lastUpdateMs_) < cfg.displayUpdateMs) {
     return;
   }
   lastUpdateMs_ = millis();
-
-  switch (cfg.displayMode) {
-    case DisplayMode::Clock:
-      renderClock();
-      break;
-
-    case DisplayMode::Alternate: {
-      const uint32_t phaseMs = static_cast<uint32_t>(cfg.alternateSeconds) * 1000UL;
-      const bool showClock = phaseMs > 0 && ((millis() / phaseMs) % 2UL) == 1UL;
-      if (showClock) {
-        renderClock();
-      } else {
-        renderMetric(cfg.selectedMetric, values);
-      }
-      break;
-    }
-
-    case DisplayMode::Metric:
-    default:
-      renderMetric(cfg.selectedMetric, values);
-      break;
-  }
+  renderMetric(cfg.selectedMetric, values);
 }
 
 const NumericValue* DisplayService::metricValue(
@@ -137,18 +170,16 @@ void DisplayService::renderMetric(MetricId metric, const ExternalValues& values)
   rememberFrame(frame);
 }
 
-void DisplayService::renderClock() {
+void DisplayService::renderClock(const struct tm& now) {
   if (!display_) return;
 
-  struct tm now;
-  if (!timeService.getLocalTm(now)) {
-    renderError();
-    return;
-  }
-
   const int hhmm = now.tm_hour * 100 + now.tm_min;
-  display_->showNumberDecEx(hhmm, TM1637_COLON_MASK, true, 4, 0);
+  const uint8_t colonMask = clockColonVisible(static_cast<uint8_t>(now.tm_sec))
+                                ? TM1637_COLON_MASK
+                                : 0;
+  display_->showNumberDecEx(hhmm, colonMask, true, 4, 0);
 
+  // Keep the web status text stable as HH:MM; only the physical colon blinks.
   snprintf(lastRenderedText_, sizeof(lastRenderedText_), "%02d:%02d", now.tm_hour, now.tm_min);
   lastScaledThousands_ = false;
 }
