@@ -23,3 +23,6 @@ bool formatClockFrame(uint8_t hour, uint8_t minute, uint8_t second, ClockFrame& 
 
 // The TM1637 center colon is lit on even seconds and dark on odd seconds.
 bool clockColonVisible(uint8_t second);
+
+// TM1637 segment pattern for the boot/wait state "Conn".
+void connectingSegments(uint8_t out[4]);

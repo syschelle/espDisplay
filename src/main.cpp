@@ -22,14 +22,17 @@ void setup() {
   settingsManager.begin();
   settingsManager.load(settings);
 
-  // Required boot order: establish Wi-Fi first, then make a bounded NTP
-  // synchronization attempt before normal polling and web operation begin.
+  // Initialize the physical display before any potentially slow network work.
+  // While local time is still invalid, the display shows only "Conn".
+  displayService.begin(settings);
+
+  // Required boot order for time acquisition: establish Wi-Fi first, then make
+  // a bounded NTP synchronization attempt before normal polling begins.
   networkService.begin(settings);
   timeService.begin();
   timeService.bootSynchronize(settings, networkService.connected());
 
   externalApiService.begin();
-  displayService.begin(settings);
   otaService.begin();
   webService.begin();
 

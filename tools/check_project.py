@@ -153,6 +153,12 @@ def test_architecture_guards() -> None:
     assert "snprintf(out.chars" not in display_format, "clock renderer must not use warning-prone snprintf formatting"
     assert "lastClockSecond_" in display, "clock rendering must track seconds independently from metric refresh"
     assert "displayUpdateMs" in display and "showClock" in display
+    assert 'copyText(lastRenderedText_, "Conn")' in display, "startup wait state must be Conn"
+    assert "connectingSegments(segments)" in display, "Conn must use a deterministic segment frame"
+    assert "showNumberDec(8888" not in display, "legacy 8888 startup self-test must be removed"
+    assert 'timeService.getLocalTm(validTimeProbe)' in display, "display must gate normal rendering until local time is valid"
+    main_cpp = (SRC / "main.cpp").read_text(encoding="utf-8")
+    assert main_cpp.index("displayService.begin(settings)") < main_cpp.index("networkService.begin(settings)"), "Conn must appear before Wi-Fi/NTP boot waits"
     assert 'root["clkGpio"]' in web and 'root["dioGpio"]' in web
     assert "restartScheduled" in web
     assert "sendProgmemAsset" in web
@@ -177,9 +183,11 @@ def test_architecture_guards() -> None:
     assert "isSha256Hex" in ota, "OTA manifest must validate the generated SHA-256 field"
     assert "OTA manifest returned HTTP %d" in ota, "manifest failures must log the actual HTTP status"
     assert "OTA firmware returned HTTP %d" in ota, "firmware failures must log the actual HTTP status"
-    assert "Update.writeStream(*stream)" in ota, "OTA must stream firmware directly to the ESP8266 updater"
+    assert "Update.writeStream(*stream" in ota, "OTA must stream firmware directly to the ESP8266 updater"
     assert "contentLength > 0" in ota and "status_.firmwareSize" in ota, "OTA must compare HTTP size when available with manifest metadata"
-    assert "header[0] != 0xE9" in ota and "Update.write(header, sizeof(header))" in ota, "OTA must validate and preserve the ESP8266 firmware header"
+    assert "stream->peek() != 0xE9" in ota, "OTA must validate the ESP8266 firmware magic byte without consuming it"
+    assert "readBytes(header" not in ota and "Update.write(header" not in ota, "OTA must not pre-consume the firmware header before Update.writeStream"
+    assert "Update.writeStream(*stream, 60000)" in ota, "OTA must let the ESP8266 updater consume the stream from byte zero"
     assert "otaUpdateActive" in web_js, "frontend must pause state polling while OTA is running"
     assert "Prepare release and OTA assets" in workflow
     assert '"version": "$GITHUB_REF_NAME"' in workflow

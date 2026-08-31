@@ -64,7 +64,6 @@ static constexpr uint16_t MAX_DISPLAY_UPDATE_MS = 10000;
 static constexpr uint16_t DEFAULT_ALTERNATE_SECONDS = 10;
 static constexpr uint16_t MIN_ALTERNATE_SECONDS = 2;
 static constexpr uint16_t MAX_ALTERNATE_SECONDS = 120;
-static constexpr uint32_t DISPLAY_BOOT_SELF_TEST_MS = 900UL;
 
 // On common four-digit TM1637 clock modules, segment DP on digit 2 drives
 // the center colon when raw segments are written with setSegments().

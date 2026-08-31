@@ -264,9 +264,21 @@ bool OtaService::install() {
     return false;
   }
 
-  uint8_t header[4] = {0, 0, 0, 0};
   stream->setTimeout(5000);
-  if (stream->readBytes(header, sizeof(header)) != sizeof(header) || header[0] != 0xE9) {
+  const unsigned long streamWaitStarted = millis();
+  while (stream->available() == 0 && stream->connected() && millis() - streamWaitStarted < 5000UL) {
+    delay(10);
+    yield();
+  }
+  if (stream->available() == 0) {
+    http.end();
+    fail("OTA firmware stream returned no data");
+    return false;
+  }
+
+  // Do not consume the firmware header before Update.writeStream().
+  // The ESP8266 updater validates the first byte itself via Stream::peek().
+  if (stream->peek() != 0xE9) {
     http.end();
     fail("Downloaded file is not a valid ESP8266 firmware image");
     return false;
@@ -281,10 +293,7 @@ bool OtaService::install() {
   }
 
   appLog.info("OTA", "Firmware download accepted; flashing started");
-  size_t written = Update.write(header, sizeof(header));
-  if (written == sizeof(header)) {
-    written += Update.writeStream(*stream);
-  }
+  const size_t written = Update.writeStream(*stream, 60000);
   if (written != status_.firmwareSize) {
     char message[96];
     snprintf(

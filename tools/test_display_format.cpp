@@ -70,6 +70,14 @@ int main() {
   assert(!formatClockFrame(12, 60, 0, clock));
   assert(!formatClockFrame(12, 0, 60, clock));
 
+  // Startup/wait state is exactly the four-character seven-segment "Conn".
+  uint8_t conn[4] = {0, 0, 0, 0};
+  connectingSegments(conn);
+  assert(conn[0] == 0x39);
+  assert(conn[1] == 0x5C);
+  assert(conn[2] == 0x54);
+  assert(conn[3] == 0x54);
+
   puts("display_format tests passed");
   return 0;
 }

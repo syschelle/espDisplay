@@ -150,3 +150,14 @@ bool formatClockFrame(uint8_t hour, uint8_t minute, uint8_t second, ClockFrame& 
 bool clockColonVisible(uint8_t second) {
   return (second % 2U) == 0U;
 }
+
+void connectingSegments(uint8_t out[4]) {
+  if (!out) return;
+
+  // Seven-segment approximations: C, o, n, n.
+  // Segment bits use the TM1637 convention A..G = bit 0..6.
+  out[0] = 0x39;  // C: A + D + E + F
+  out[1] = 0x5C;  // o: C + D + E + G
+  out[2] = 0x54;  // n: C + E + G
+  out[3] = 0x54;  // n
+}

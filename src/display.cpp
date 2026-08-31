@@ -24,15 +24,11 @@ void DisplayService::begin(const AppSettings& cfg) {
   display_->clear();
   applySettings(cfg);
 
-  // A short all-segments self-test makes wiring/pin problems immediately
-  // visible after every boot. It is intentionally bounded to keep boot fast.
+  // Show exactly one deterministic boot state while the clock is invalid.
+  // No segment self-test or placeholder value is displayed before NTP time.
   if (cfg.displayEnabled) {
     display_->setBrightness(cfg.displayBrightness, true);
-    display_->showNumberDec(8888, true, 4, 0);
-    copyText(lastRenderedText_, "8888");
-    delay(DISPLAY_BOOT_SELF_TEST_MS);
-    yield();
-    display_->clear();
+    renderConnecting();
   }
 
   lastUpdateMs_ = 0;
@@ -59,6 +55,7 @@ void DisplayService::applySettings(const AppSettings& cfg) {
   lastClockPollMs_ = 0;
   lastClockSecond_ = -1;
   lastRenderedWasClock_ = false;
+  lastRenderedWasConnecting_ = false;
 }
 
 void DisplayService::tick(const AppSettings& cfg, const ExternalValues& values) {
@@ -72,6 +69,19 @@ void DisplayService::tick(const AppSettings& cfg, const ExternalValues& values) 
   if (lastBrightness_ != cfg.displayBrightness || !lastEnabled_) {
     applySettings(cfg);
   }
+
+  // Until a valid local clock exists, the display must show only "Conn".
+  // This intentionally overrides metric and clock modes during startup.
+  struct tm validTimeProbe;
+  if (!timeService.getLocalTm(validTimeProbe)) {
+    if (!lastRenderedWasConnecting_) {
+      renderConnecting();
+    }
+    lastRenderedWasClock_ = false;
+    lastClockSecond_ = -1;
+    return;
+  }
+  lastRenderedWasConnecting_ = false;
 
   bool showClock = cfg.displayMode == DisplayMode::Clock;
   if (cfg.displayMode == DisplayMode::Alternate) {
@@ -226,6 +236,17 @@ void DisplayService::renderFrame(const DisplayFrame& frame) {
   }
 
   display_->setSegments(segments);
+}
+
+void DisplayService::renderConnecting() {
+  if (!display_) return;
+
+  uint8_t segments[4] = {0, 0, 0, 0};
+  connectingSegments(segments);
+  display_->setSegments(segments);
+  copyText(lastRenderedText_, "Conn");
+  lastScaledThousands_ = false;
+  lastRenderedWasConnecting_ = true;
 }
 
 void DisplayService::renderError() {

@@ -43,7 +43,7 @@ Factory defaults and migrated v0.1.0 settings use:
 
 Recommended general-purpose choices are D1/GPIO5, D2/GPIO4, D5/GPIO14, D6/GPIO12 and D7/GPIO13. D3/GPIO0, D4/GPIO2 and D8/GPIO15 are ESP8266 boot-strap pins; RX/GPIO3 and TX/GPIO1 share the serial interface. They are available in the UI with a warning for existing installations, but should be used deliberately. GPIO6 through GPIO11 are connected to the ESP8266 flash and are not selectable.
 
-At boot, an enabled display shows `8888` briefly as a wiring/pin self-test. If `8888` is not visible, verify power, CLK/DIO order and the configured GPIOs.
+At boot, an enabled display immediately shows `Conn` while no valid local time is available. `Conn` remains the only physical display output during Wi-Fi/NTP startup. As soon as a valid local time exists, the normal configured display mode takes over.
 
 **Electrical note:** ESP8266 GPIOs are 3.3 V only. Some TM1637 breakout boards contain pull-ups to their supply voltage. Verify the specific module before powering it from 5 V; do not expose ESP8266 GPIOs to 5 V. Use a 3.3 V-compatible module or suitable level shifting when required.
 
@@ -306,7 +306,7 @@ The manifest contains only release metadata, for example:
 
 ```json
 {
-  "version": "v0.1.8",
+  "version": "v0.1.10",
   "firmware": "firmware.bin",
   "size": 412345,
   "sha256": "..."
@@ -345,8 +345,9 @@ A cache-busting query parameter is added to manifest and firmware requests so a 
 
 - The early development v0.1.0 firmware used the old `syschelle/EnergyDisplay8266` channel.
 - v0.1.1 through v0.1.6 used GitHub Release metadata/assets and the Release-asset download path proved unreliable on the real ESP8266.
-- **v0.1.7 must therefore be installed once via USB/serial on affected devices.**
-- **v0.1.8 is the first dedicated validation release for the redirect-free `ota` branch.**
+- v0.1.7 introduced the redirect-free channel, but v0.1.7/v0.1.8 still had a firmware-stream handoff bug during flashing.
+- **v0.1.9 fixes that stream-write bug and is the minimum recommended base for OTA validation.**
+- **v0.1.10 can be installed from v0.1.9 to validate the complete redirect-free OTA path.**
 
 Do not run a full flash erase if existing EEPROM settings should be retained.
 
@@ -358,7 +359,7 @@ The OTA channel is hard-pinned to `syschelle/espDisplay`, branch `ota`, and file
 
 `.github/workflows/release-firmware.yml` builds the `d1_mini` ESP8266 environment on pushes and pull requests to `main`. Tags matching `v*` perform both the normal GitHub Release and the dedicated ESP8266 OTA publication.
 
-For a tag such as `v0.1.8`, the workflow:
+For a tag such as `v0.1.10`, the workflow:
 
 1. Validates that the tag exactly matches `FW_VERSION` in `src/version.h`.
 2. Installs PlatformIO and runs the project checks.
@@ -378,7 +379,7 @@ The project starts at **v0.1.0**.
 `src/version.h` is the firmware's version source of truth:
 
 ```cpp
-#define FW_VERSION "v0.1.8"
+#define FW_VERSION "v0.1.10"
 ```
 
 The tag validation step prevents a GitHub release whose tag differs from the compiled firmware version. Every published functional change must receive a new version; never replace behavior under an already published version.
@@ -424,7 +425,8 @@ src/
 
 - No successful API value has been received for the selected metric, or the selected optional field is absent.
 - Check TM1637 CLK/DIO wiring and the pin mapping under **Display** in the web interface.
-- After boot, `8888` should appear briefly when the display is enabled.
+- Immediately after boot, `Conn` should appear when the display is enabled.
+- `Conn` remains visible until a valid local time is available. If it is not visible, verify power, CLK/DIO order and the configured GPIOs.
 - Check API status and the Measurements page.
 
 ### Time not synchronized
