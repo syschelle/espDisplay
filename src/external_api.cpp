@@ -4,6 +4,7 @@
 #include <ESP8266WiFi.h>
 #include <ctype.h>
 #include <math.h>
+#include <new>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -85,8 +86,22 @@ bool containsIgnoreCase(const char* text, const char* needle) {
 void ExternalApiService::begin() {
   values_ = ExternalValues();
   forcePoll_ = true;
+  suspended_ = false;
   lastFinishedMs_ = 0;
   abortRequest();
+}
+
+void ExternalApiService::suspend() {
+  suspended_ = true;
+  if (requestInProgress()) {
+    appLog.info("API", "External API request paused for OTA");
+  }
+  abortRequest();
+}
+
+void ExternalApiService::resume() {
+  suspended_ = false;
+  forcePoll_ = true;
 }
 
 void ExternalApiService::forcePoll() {
@@ -102,6 +117,11 @@ void ExternalApiService::clearCache() {
 
 void ExternalApiService::tick(const AppSettings& cfg, bool wifiConnected) {
   updateStale(cfg.apiPollSeconds);
+
+  if (suspended_) {
+    if (requestInProgress()) abortRequest();
+    return;
+  }
 
   if (!configured(cfg)) {
     if (requestInProgress()) abortRequest();
@@ -147,6 +167,40 @@ void ExternalApiService::updateStale(uint16_t pollSeconds) {
   }
 }
 
+void ExternalApiService::releaseBodyBuffer() {
+  if (bodyBuffer_) {
+    delete[] bodyBuffer_;
+    bodyBuffer_ = nullptr;
+  }
+  bodyCapacity_ = 0;
+}
+
+bool ExternalApiService::ensureBodyCapacity(size_t requiredBytes) {
+  if (requiredBytes > MAX_EXTERNAL_API_BYTES + 1) return false;
+  if (bodyBuffer_ && bodyCapacity_ >= requiredBytes) return true;
+
+  size_t nextCapacity = bodyCapacity_ > 0 ? bodyCapacity_ : 1025;
+  while (nextCapacity < requiredBytes && nextCapacity < MAX_EXTERNAL_API_BYTES + 1) {
+    const size_t doubled = nextCapacity * 2;
+    nextCapacity = doubled > MAX_EXTERNAL_API_BYTES + 1
+                       ? MAX_EXTERNAL_API_BYTES + 1
+                       : doubled;
+  }
+  if (nextCapacity < requiredBytes) return false;
+
+  char* next = new (std::nothrow) char[nextCapacity];
+  if (!next) return false;
+
+  if (bodyBuffer_ && bodyLength_ > 0) {
+    memcpy(next, bodyBuffer_, bodyLength_);
+  }
+  delete[] bodyBuffer_;
+  bodyBuffer_ = next;
+  bodyCapacity_ = nextCapacity;
+  if (bodyLength_ < bodyCapacity_) bodyBuffer_[bodyLength_] = '\0';
+  return true;
+}
+
 void ExternalApiService::resetRequestBuffers() {
   headerLength_ = 0;
   bodyLength_ = 0;
@@ -158,7 +212,7 @@ void ExternalApiService::resetRequestBuffers() {
   sawHeaderTerminator_ = false;
   chunkState_ = ChunkState::Size;
   headerBuffer_[0] = '\0';
-  bodyBuffer_[0] = '\0';
+  releaseBodyBuffer();
   chunkLine_[0] = '\0';
 }
 
@@ -327,6 +381,14 @@ bool ExternalApiService::parseHeaders() {
     cursor = end + 2;
   }
 
+  if (contentLength_ >= 0) {
+    const size_t required = static_cast<size_t>(contentLength_) + 1;
+    if (!ensureBodyCapacity(required)) {
+      failRequest(status, "Insufficient heap for API response buffer");
+      return false;
+    }
+  }
+
   return true;
 }
 
@@ -335,6 +397,11 @@ bool ExternalApiService::consumeBodyByte(uint8_t value) {
 
   if (bodyLength_ >= MAX_EXTERNAL_API_BYTES) {
     failRequest(values_.lastHttpStatus, "Response exceeds configured JSON size limit");
+    return false;
+  }
+
+  if (!ensureBodyCapacity(bodyLength_ + 2)) {
+    failRequest(values_.lastHttpStatus, "Insufficient heap for API response buffer");
     return false;
   }
 
@@ -384,6 +451,10 @@ bool ExternalApiService::consumeChunkedByte(uint8_t value) {
       failRequest(values_.lastHttpStatus, "Invalid chunked API response");
       return false;
     }
+    if (!ensureBodyCapacity(bodyLength_ + 2)) {
+      failRequest(values_.lastHttpStatus, "Insufficient heap for API response buffer");
+      return false;
+    }
     bodyBuffer_[bodyLength_++] = static_cast<char>(value);
     bodyBuffer_[bodyLength_] = '\0';
     --chunkRemaining_;
@@ -410,6 +481,10 @@ bool ExternalApiService::consumeChunkedByte(uint8_t value) {
 }
 
 bool ExternalApiService::finishResponse() {
+  if (!bodyBuffer_ || bodyLength_ == 0) {
+    failRequest(values_.lastHttpStatus, "API response body is empty");
+    return false;
+  }
   bodyBuffer_[bodyLength_] = '\0';
 
   ExternalValues next = ExternalValues();

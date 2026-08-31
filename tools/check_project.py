@@ -122,6 +122,11 @@ def test_architecture_guards() -> None:
     assert "Connection: close" in external and "Accept-Encoding: identity" in external
     assert "Transfer-Encoding:" in external and "chunked" in external
     assert "Deliberately keep all last-known-good numeric values" in external
+    assert "char bodyBuffer_[8193]" not in (SRC / "external_api.h").read_text(encoding="utf-8"), "large API response buffer must not remain permanently allocated in BSS"
+    assert "char* bodyBuffer_ = nullptr" in (SRC / "external_api.h").read_text(encoding="utf-8")
+    assert "ensureBodyCapacity" in external and "releaseBodyBuffer" in external
+    assert "void ExternalApiService::suspend()" in external and "void ExternalApiService::resume()" in external
+    assert "External API request paused for OTA" in external
     assert "values_ = next" in external
     assert "markFailure" in external
     for field in [
@@ -168,6 +173,9 @@ def test_architecture_guards() -> None:
     assert "snprintf(out.chars" not in display_format, "clock renderer must not use warning-prone snprintf formatting"
     assert "lastClockSecond_" in display, "clock rendering must track seconds independently from metric refresh"
     assert "displayUpdateMs" in display and "showClock" in display
+    assert "alternateClockVisible" in display_format and "alternateClockVisible" in display, "alternate mode must use fixed one-second metric phases"
+    assert "degreeSymbolSegment" in display_format and "degreeSuffix" in display, "temperature must render a dedicated degree suffix"
+    assert "buildRoundedTemperatureFrame" in display_format, "air temperature must be rounded to an integer"
     assert 'copyText(lastRenderedText_, "Conn")' in display, "startup wait state must be Conn"
     assert "connectingSegments(segments)" in display, "Conn must use a deterministic segment frame"
     assert "showNumberDec(8888" not in display, "legacy 8888 startup self-test must be removed"
@@ -205,6 +213,9 @@ def test_architecture_guards() -> None:
     assert "stream->peek() != 0xE9" in ota, "OTA must validate the ESP8266 firmware magic byte without consuming it"
     assert "readBytes(header" not in ota and "Update.write(header" not in ota, "OTA must not pre-consume the firmware header before Update.writeStream"
     assert "Update.writeStream(*stream, 60000)" in ota, "OTA must let the ESP8266 updater consume the stream from byte zero"
+    assert "externalApiService.suspend()" in web and "externalApiService.resume()" in web, "OTA handlers must release slow API resources before BearSSL TLS"
+    assert "HTTPClient::errorToString(code)" in ota, "negative OTA transport errors must include the ESP8266 HTTPClient reason"
+    assert "ESP.getFreeHeap()" in ota, "OTA connection failures must include free-heap diagnostics"
     assert "otaUpdateActive" in web_js, "frontend must pause state polling while OTA is running"
     assert "Prepare release and OTA assets" in workflow
     assert '"version": "$GITHUB_REF_NAME"' in workflow

@@ -12,13 +12,14 @@ static NumericValue numeric(float value) {
   return n;
 }
 
-static void expect(MetricId metric, float value, const char* chars, int decimalAfter, bool scaled) {
+static void expect(MetricId metric, float value, const char* chars, int decimalAfter, bool scaled, bool degree = false) {
   DisplayFrame out;
   assert(formatMetricFrame(metric, numeric(value), out));
   assert(out.valid);
   assert(strcmp(out.chars, chars) == 0);
   assert(out.decimalAfter == decimalAfter);
   assert(out.scaledThousands == scaled);
+  assert(out.degreeSuffix == degree);
 }
 
 int main() {
@@ -34,7 +35,9 @@ int main() {
   expect(MetricId::TotalGridImportKwh, 123.4f, "1234", 2, false); // 123.4
   expect(MetricId::TotalGridImportKwh, 12345.0f, "1235", 1, true); // 12.35 x1000
 
-  expect(MetricId::AirTemperatureC, 22.85f, "229", 1, false); // 22.9
+  expect(MetricId::AirTemperatureC, 22.49f, "22", -1, false, true); // 22°
+  expect(MetricId::AirTemperatureC, 22.50f, "23", -1, false, true); // 23°
+  expect(MetricId::AirTemperatureC, -4.6f, "-5", -1, false, true);  // -5°
   expect(MetricId::AirHumidityPercent, 76.88f, "769", 1, false);
 
   DisplayFrame invalid;
@@ -42,6 +45,19 @@ int main() {
   assert(!formatMetricFrame(MetricId::GridImportW, missing, invalid));
   assert(!invalid.valid);
 
+
+  // Alternate mode: configured seconds apply only to the clock. The metric
+  // occupies exactly the following one-second phase.
+  assert(alternateClockVisible(0, 10));
+  assert(alternateClockVisible(9999, 10));
+  assert(!alternateClockVisible(10000, 10));
+  assert(!alternateClockVisible(10999, 10));
+  assert(alternateClockVisible(11000, 10));
+  assert(alternateClockVisible(11001, 10));
+  assert(!alternateClockVisible(21000, 10));
+  assert(alternateClockVisible(22000, 10));
+
+  assert(degreeSymbolSegment() == 0x63);
 
   // Clock colon: visible on even seconds, hidden on odd seconds.
   assert(clockColonVisible(0));

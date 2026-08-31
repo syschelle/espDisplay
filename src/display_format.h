@@ -8,6 +8,7 @@ struct DisplayFrame {
   int8_t decimalAfter = -1;  // Character index in chars after which the decimal point is lit.
   bool valid = false;
   bool scaledThousands = false;
+  bool degreeSuffix = false;  // Render a dedicated seven-segment degree symbol in the last digit.
 };
 
 bool formatMetricFrame(MetricId metric, const NumericValue& value, DisplayFrame& out);
@@ -23,6 +24,13 @@ bool formatClockFrame(uint8_t hour, uint8_t minute, uint8_t second, ClockFrame& 
 
 // The TM1637 center colon is lit on even seconds and dark on odd seconds.
 bool clockColonVisible(uint8_t second);
+
+// In alternate mode the configured interval controls only the clock phase.
+// The metric phase is fixed at exactly one second.
+bool alternateClockVisible(uint32_t elapsedMs, uint16_t clockSeconds);
+
+// Raw TM1637 seven-segment approximation of the degree symbol.
+uint8_t degreeSymbolSegment();
 
 // TM1637 segment pattern for the boot/wait state "Conn".
 void connectingSegments(uint8_t out[4]);

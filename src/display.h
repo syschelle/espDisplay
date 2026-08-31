@@ -33,6 +33,8 @@ class DisplayService {
   int8_t lastClockSecond_ = -1;
   bool lastRenderedWasClock_ = false;
   bool lastRenderedWasConnecting_ = false;
+  uint32_t alternateCycleStartedMs_ = 0;
+  bool alternateCycleActive_ = false;
   char lastRenderedText_[8] = "----";
   bool lastScaledThousands_ = false;
   bool lastEnabled_ = true;

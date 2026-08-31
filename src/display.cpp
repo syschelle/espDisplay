@@ -35,6 +35,8 @@ void DisplayService::begin(const AppSettings& cfg) {
   lastClockPollMs_ = 0;
   lastClockSecond_ = -1;
   lastRenderedWasClock_ = false;
+  alternateCycleStartedMs_ = 0;
+  alternateCycleActive_ = false;
 }
 
 void DisplayService::applySettings(const AppSettings& cfg) {
@@ -56,6 +58,8 @@ void DisplayService::applySettings(const AppSettings& cfg) {
   lastClockSecond_ = -1;
   lastRenderedWasClock_ = false;
   lastRenderedWasConnecting_ = false;
+  alternateCycleStartedMs_ = 0;
+  alternateCycleActive_ = false;
 }
 
 void DisplayService::tick(const AppSettings& cfg, const ExternalValues& values) {
@@ -79,21 +83,32 @@ void DisplayService::tick(const AppSettings& cfg, const ExternalValues& values) 
     }
     lastRenderedWasClock_ = false;
     lastClockSecond_ = -1;
+    alternateCycleActive_ = false;
     return;
   }
   lastRenderedWasConnecting_ = false;
 
+  const uint32_t nowMs = millis();
   bool showClock = cfg.displayMode == DisplayMode::Clock;
   if (cfg.displayMode == DisplayMode::Alternate) {
-    const uint32_t phaseMs = static_cast<uint32_t>(cfg.alternateSeconds) * 1000UL;
-    showClock = phaseMs > 0 && ((millis() / phaseMs) % 2UL) == 1UL;
+    // Start every alternate cycle with a complete clock phase. The configured
+    // interval now controls only how long the clock stays visible; the metric
+    // is always shown for exactly one second between clock phases.
+    if (!alternateCycleActive_) {
+      alternateCycleStartedMs_ = nowMs;
+      alternateCycleActive_ = true;
+    }
+    showClock = alternateClockVisible(
+        static_cast<uint32_t>(nowMs - alternateCycleStartedMs_),
+        cfg.alternateSeconds);
+  } else {
+    alternateCycleActive_ = false;
   }
 
   // Clock rendering is deliberately independent from displayUpdateMs. A user may
   // choose a slow metric refresh (for example 4000 ms), but the center colon
   // still has to toggle exactly once per second while the clock is visible.
   if (showClock) {
-    const uint32_t nowMs = millis();
     if (lastClockPollMs_ != 0 &&
         static_cast<uint32_t>(nowMs - lastClockPollMs_) < 200UL) {
       return;
@@ -216,9 +231,11 @@ void DisplayService::renderFrame(const DisplayFrame& frame) {
 
   uint8_t segments[4] = {0, 0, 0, 0};
   const size_t len = strlen(frame.chars);
-  const uint8_t offset = len < 4 ? static_cast<uint8_t>(4 - len) : 0;
+  const size_t suffixWidth = frame.degreeSuffix ? 1U : 0U;
+  const size_t totalWidth = len + suffixWidth;
+  const uint8_t offset = totalWidth < 4U ? static_cast<uint8_t>(4U - totalWidth) : 0U;
 
-  for (size_t i = 0; i < len && i < 4; ++i) {
+  for (size_t i = 0; i < len && (offset + i) < 4U; ++i) {
     const char c = frame.chars[i];
     uint8_t encoded = 0;
 
@@ -233,6 +250,10 @@ void DisplayService::renderFrame(const DisplayFrame& frame) {
       encoded |= 0x80;
     }
     segments[displayIndex] = encoded;
+  }
+
+  if (frame.degreeSuffix && len < 4U && (offset + len) < 4U) {
+    segments[offset + len] = degreeSymbolSegment();
   }
 
   display_->setSegments(segments);
@@ -265,6 +286,11 @@ void DisplayService::rememberFrame(const DisplayFrame& frame) {
         out < sizeof(lastRenderedText_) - 1) {
       lastRenderedText_[out++] = '.';
     }
+  }
+  if (frame.degreeSuffix && out + 2U < sizeof(lastRenderedText_)) {
+    // UTF-8 degree sign for the web/API mirror of the physical display.
+    lastRenderedText_[out++] = static_cast<char>(0xC2);
+    lastRenderedText_[out++] = static_cast<char>(0xB0);
   }
   lastRenderedText_[out] = '\0';
   lastScaledThousands_ = frame.scaledThousands;

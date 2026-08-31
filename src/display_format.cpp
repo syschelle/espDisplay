@@ -57,6 +57,24 @@ bool buildDecimalFrame(float value, uint8_t maxDecimals, DisplayFrame& out) {
   return false;
 }
 
+bool buildRoundedTemperatureFrame(float value, DisplayFrame& out) {
+  if (!isfinite(value)) return false;
+
+  const long rounded = lroundf(value);
+  char buffer[16];
+  snprintf(buffer, sizeof(buffer), "%ld", rounded);
+
+  // One of the four TM1637 digits is reserved for the degree symbol.
+  // This leaves up to three characters for the signed integer temperature.
+  if (strlen(buffer) > 3) return false;
+
+  copyText(out.chars, buffer);
+  out.decimalAfter = -1;
+  out.valid = true;
+  out.degreeSuffix = true;
+  return true;
+}
+
 bool buildIntegerFrame(float value, DisplayFrame& out) {
   if (!isfinite(value)) return false;
   const long rounded = lroundf(value);
@@ -114,6 +132,8 @@ bool formatMetricFrame(MetricId metric, const NumericValue& input, DisplayFrame&
       return false;
 
     case MetricId::AirTemperatureC:
+      return buildRoundedTemperatureFrame(value, out);
+
     case MetricId::AirHumidityPercent:
     case MetricId::AirDewPointC:
       return buildDecimalFrame(value, 1, out);
@@ -149,6 +169,19 @@ bool formatClockFrame(uint8_t hour, uint8_t minute, uint8_t second, ClockFrame& 
 
 bool clockColonVisible(uint8_t second) {
   return (second % 2U) == 0U;
+}
+
+bool alternateClockVisible(uint32_t elapsedMs, uint16_t clockSeconds) {
+  if (clockSeconds == 0U) return false;
+
+  const uint32_t clockMs = static_cast<uint32_t>(clockSeconds) * 1000UL;
+  const uint32_t cycleMs = clockMs + 1000UL;
+  return (elapsedMs % cycleMs) < clockMs;
+}
+
+uint8_t degreeSymbolSegment() {
+  // Small raised circle: segments A + B + F + G.
+  return 0x63;
 }
 
 void connectingSegments(uint8_t out[4]) {

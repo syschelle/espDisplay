@@ -117,6 +117,8 @@ External API -> cooperative ESP8266 background poll -> RAM last-known-good cache
 
 Only one external API request may be active at a time. The next polling interval starts after the previous request finishes, so a slow server cannot create overlapping requests.
 
+The API response body buffer is allocated dynamically only while a response is being received and is released immediately after success, failure, timeout or cancellation. This avoids permanently reserving roughly 8 KB of scarce ESP8266 DRAM. OTA operations temporarily suspend and abort any active external API request before BearSSL starts a TLS connection, then resume API polling after an OTA check or failed install.
+
 ### Supported top-level fields
 
 - `timestamp_utc`
@@ -176,7 +178,7 @@ Selectable metrics:
 - Current total consumption
 - Daily solar / import / export
 - Total solar / import / export
-- External air temperature
+- External air temperature (rounded to a whole degree with `°` on the TM1637)
 - External humidity
 - External dew point
 - PM10 / PM2.5
@@ -190,7 +192,7 @@ Persistent display settings:
 - Metric-only mode
 - Clock-only mode
 - Alternating metric/clock mode
-- Alternation interval
+- Clock display duration in alternating mode
 
 ### Four-digit formatting
 
@@ -200,7 +202,10 @@ The formatter deliberately fits values to four digits:
 - Larger Watt values are scaled by 1000 and shown with a useful decimal when possible, e.g. `12500 W -> 12.5`.
 - kWh values use a dynamic decimal representation such as `6.31`, `12.5`, or `123.4` where the display permits it.
 - Negative values preserve the minus sign where they can be represented.
+- External air temperature is rounded to the nearest whole degree and uses the final TM1637 digit as a seven-segment degree symbol, e.g. `23.6 °C -> 24°`.
 - Missing/invalid values show `----`.
+
+In alternating mode, the configured duration now applies only to the clock phase. The selected API metric is shown for exactly one second between clock phases. For example, a value of 10 seconds produces `clock 10 s -> metric 1 s -> clock 10 s -> metric 1 s`.
 
 When the internal formatter scales a value by 1000, the web status page marks the rendered value with `×1000`. A four-digit TM1637 cannot display a textual `kW` suffix.
 
@@ -315,7 +320,7 @@ The manifest contains only release metadata, for example:
 
 ```json
 {
-  "version": "v0.1.11",
+  "version": "v0.1.13",
   "firmware": "firmware.bin",
   "size": 412345,
   "sha256": "..."
@@ -358,6 +363,8 @@ A cache-busting query parameter is added to manifest and firmware requests so a 
 - **v0.1.9 fixes that stream-write bug and is the minimum recommended base for OTA validation.**
 - v0.1.10 successfully validated the complete redirect-free OTA path on real hardware.
 - v0.1.11 keeps that OTA path and adds the non-blocking external API poller plus configurable API port.
+- v0.1.12 prevents the slow API client from starving BearSSL/TLS during OTA checks by releasing API socket/buffer resources before OTA.
+- **v0.1.13 rounds the external air temperature to a whole degree with a degree symbol and makes alternate mode show the metric for exactly one second while the configured interval applies only to the clock.**
 
 Do not run a full flash erase if existing EEPROM settings should be retained.
 
@@ -369,7 +376,7 @@ The OTA channel is hard-pinned to `syschelle/espDisplay`, branch `ota`, and file
 
 `.github/workflows/release-firmware.yml` builds the `d1_mini` ESP8266 environment on pushes and pull requests to `main`. Tags matching `v*` perform both the normal GitHub Release and the dedicated ESP8266 OTA publication.
 
-For a tag such as `v0.1.11`, the workflow:
+For a tag such as `v0.1.13`, the workflow:
 
 1. Validates that the tag exactly matches `FW_VERSION` in `src/version.h`.
 2. Installs PlatformIO and runs the project checks.
@@ -389,7 +396,7 @@ The project starts at **v0.1.0**.
 `src/version.h` is the firmware's version source of truth:
 
 ```cpp
-#define FW_VERSION "v0.1.11"
+#define FW_VERSION "v0.1.13"
 ```
 
 The tag validation step prevents a GitHub release whose tag differs from the compiled firmware version. Every published functional change must receive a new version; never replace behavior under an already published version.

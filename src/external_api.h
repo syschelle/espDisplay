@@ -11,6 +11,9 @@ class ExternalApiService {
   void tick(const AppSettings& settings, bool wifiConnected);
   void forcePoll();
   void clearCache();
+  void suspend();
+  void resume();
+  bool suspended() const { return suspended_; }
 
   const ExternalValues& values() const { return values_; }
   bool configured(const AppSettings& settings) const { return settings.apiHost[0] != '\0'; }
@@ -34,6 +37,7 @@ class ExternalApiService {
   RequestState requestState_ = RequestState::Idle;
   ChunkState chunkState_ = ChunkState::Size;
   bool forcePoll_ = true;
+  bool suspended_ = false;
   bool chunked_ = false;
   bool sawHeaderTerminator_ = false;
   int32_t contentLength_ = -1;
@@ -46,13 +50,16 @@ class ExternalApiService {
   size_t bodyLength_ = 0;
   size_t chunkLineLength_ = 0;
   char headerBuffer_[1025] = "";
-  char bodyBuffer_[8193] = "";
+  char* bodyBuffer_ = nullptr;
+  size_t bodyCapacity_ = 0;
   char chunkLine_[24] = "";
 
   void startRequest(const AppSettings& settings);
   void serviceRequest(const AppSettings& settings);
   void abortRequest();
   void resetRequestBuffers();
+  void releaseBodyBuffer();
+  bool ensureBodyCapacity(size_t requiredBytes);
   bool consumeByte(uint8_t value);
   bool consumeBodyByte(uint8_t value);
   bool consumeChunkedByte(uint8_t value);

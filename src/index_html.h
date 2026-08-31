@@ -172,7 +172,7 @@ const char INDEX_HTML[] PROGMEM = R"ED8266(
               </select>
             </div>
             <div class="form-group" id="alternateSettingGroup">
-              <label for="alternateSeconds" data-i18n="display.alternate">Wechselintervall (s)</label>
+              <label for="alternateSeconds" data-i18n="display.alternate">Uhrzeit-Anzeigedauer (s)</label>
               <input id="alternateSeconds" type="number" min="2" max="120" step="1">
             </div>
           </div>

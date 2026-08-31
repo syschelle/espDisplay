@@ -68,6 +68,14 @@ bool OtaService::check() {
     return false;
   }
 
+  char heapMessage[72];
+  snprintf(
+      heapMessage,
+      sizeof(heapMessage),
+      "Manifest check starting (free heap %lu)",
+      static_cast<unsigned long>(ESP.getFreeHeap()));
+  appLog.info("OTA", heapMessage);
+
   char manifestBase[192];
   buildRawUrl(manifestBase, sizeof(manifestBase), OTA_MANIFEST_NAME);
 
@@ -98,7 +106,18 @@ bool OtaService::check() {
   const int code = http.GET();
   if (code != HTTP_CODE_OK) {
     char message[96];
-    snprintf(message, sizeof(message), "OTA manifest returned HTTP %d", code);
+    if (code < 0) {
+      const String detail = HTTPClient::errorToString(code);
+      snprintf(
+          message,
+          sizeof(message),
+          "OTA manifest connection failed %d: %.34s (heap %lu)",
+          code,
+          detail.c_str(),
+          static_cast<unsigned long>(ESP.getFreeHeap()));
+    } else {
+      snprintf(message, sizeof(message), "OTA manifest returned HTTP %d", code);
+    }
     http.end();
     fail(message);
     return false;
@@ -214,7 +233,13 @@ bool OtaService::install() {
     return false;
   }
 
-  appLog.info("OTA", "Firmware update started");
+  char heapMessage[72];
+  snprintf(
+      heapMessage,
+      sizeof(heapMessage),
+      "Firmware update starting (free heap %lu)",
+      static_cast<unsigned long>(ESP.getFreeHeap()));
+  appLog.info("OTA", heapMessage);
 
   BearSSL::WiFiClientSecure client;
   client.setInsecure();
@@ -237,7 +262,18 @@ bool OtaService::install() {
   const int code = http.GET();
   if (code != HTTP_CODE_OK) {
     char message[96];
-    snprintf(message, sizeof(message), "OTA firmware returned HTTP %d", code);
+    if (code < 0) {
+      const String detail = HTTPClient::errorToString(code);
+      snprintf(
+          message,
+          sizeof(message),
+          "OTA firmware connection failed %d: %.34s (heap %lu)",
+          code,
+          detail.c_str(),
+          static_cast<unsigned long>(ESP.getFreeHeap()));
+    } else {
+      snprintf(message, sizeof(message), "OTA firmware returned HTTP %d", code);
+    }
     http.end();
     fail(message);
     return false;

@@ -525,7 +525,17 @@ void WebService::handleLogClearPost() {
 }
 
 void WebService::handleOtaCheck() {
-  if (!otaService.check()) {
+  // BearSSL needs a large contiguous heap block. Suspend any slow external API
+  // request first so its socket and dynamic response buffer are released before
+  // the TLS manifest connection starts.
+  externalApiService.suspend();
+  delay(20);
+  yield();
+
+  const bool otaOk = otaService.check();
+  externalApiService.resume();
+
+  if (!otaOk) {
     sendError(502, otaService.status().lastError);
     return;
   }
@@ -541,10 +551,18 @@ void WebService::handleOtaCheck() {
 }
 
 void WebService::handleOtaUpdate() {
+  externalApiService.suspend();
+  delay(20);
+  yield();
+
   if (!otaService.install()) {
+    externalApiService.resume();
     sendError(502, otaService.status().lastError);
     return;
   }
+
+  // Keep the external API suspended after a successful flash. The device is
+  // about to reboot, so starting another HTTP request would only waste heap.
   sendJson(200, F("{\"ok\":true,\"message\":\"Update completed; rebooting\"}"));
   scheduleRestart(2000UL);
 }
