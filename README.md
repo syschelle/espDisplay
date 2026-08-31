@@ -8,7 +8,7 @@ This repository is **not** a GrowTent firmware variant. It has its own PlatformI
 
 - ESP8266 / Arduino Framework / PlatformIO
 - TM1637 four-digit display
-- External API polling at `http://<host>/api/current-values`
+- External API polling at `http://<host>:<port>/api/current-values`
 - Last-known-good RAM cache with stale/error state
 - No sensor, relay, pump, Shelly, VPD, irrigation, tank or HomeKit logic
 - Responsive GrowTent-inspired web UI with light/dark theme
@@ -92,27 +92,30 @@ The stored Wi-Fi password is never returned by the settings API and is never wri
 
 ## External API
 
-Configure only the host/IP in the web UI, for example:
+Configure the host/IP and TCP port separately in the web UI, for example:
 
 ```text
-192.168.178.50
+Host: 192.168.178.50
+Port: 8080
 ```
 
 The firmware constructs exactly:
 
 ```text
-http://192.168.178.50/api/current-values
+http://192.168.178.50:8080/api/current-values
 ```
 
-Schemes, ports embedded in arbitrary URLs, paths and redirects supplied by API data are not accepted. The endpoint path is fixed in `src/config.h`.
+The default port is **80**. Schemes, embedded paths and arbitrary URLs are not accepted in the host field. The endpoint path remains fixed in `src/config.h`.
 
 Default poll interval: **10 seconds**. Supported range: **5–300 seconds**.
 
-The ESP8266 performs polling itself. Browser requests never trigger a remote API request:
+The external API client is implemented as a cooperative state machine rather than a FreeRTOS task. The ESP8266 only performs the short TCP/DNS connection phase synchronously with a tightly bounded timeout. Waiting for slow HTTP headers/body and receiving the JSON response are handled incrementally from the normal `loop()`, with a fixed per-loop read budget. This keeps the local web server, TM1637 clock, NTP, Wi-Fi maintenance and OTA responsive while a slow API request is still in progress.
 
 ```text
-External API -> periodic ESP8266 poll -> RAM last-known-good cache -> web UI / TM1637
+External API -> cooperative ESP8266 background poll -> RAM last-known-good cache -> web UI / TM1637
 ```
+
+Only one external API request may be active at a time. The next polling interval starts after the previous request finishes, so a slow server cannot create overlapping requests.
 
 ### Supported top-level fields
 
@@ -143,18 +146,24 @@ External API -> periodic ESP8266 poll -> RAM last-known-good cache -> web UI / T
 
 Unknown fields are ignored. Missing optional fields remain unavailable rather than causing a crash. A response is accepted only if valid JSON contains at least one supported numeric measurement.
 
-### Failure and cache behavior
+### Slow API, failure and cache behavior
 
-- HTTP timeout is bounded.
-- Response size is limited.
+- TCP/DNS connection establishment is bounded to a short timeout.
+- Waiting for the HTTP response is cooperative and does not block the main loop.
+- A request may remain open for up to 60 seconds without freezing the local UI/display.
+- Response reading is limited to a small number of bytes per main-loop pass.
+- `Content-Length`, connection-close bodies and HTTP chunked transfer encoding are supported.
+- Response size is limited to 8192 bytes.
 - Invalid JSON is rejected.
 - Non-200 responses are rejected.
-- A failed request does **not** erase the last valid measurements.
-- Cached values are marked stale after an appropriate age threshold.
+- A failed or still-running request does **not** erase the last valid measurements.
+- The last-known-good measurements remain in RAM and continue to be available to the TM1637 and web interface.
+- Old values are explicitly marked stale; they are never presented as fresh data.
+- No overlapping API requests are started.
 - Failures never deliberately reboot the ESP8266.
 - Successful normal polls are not logged continuously; state transitions are logged instead.
 
-No measurement history is stored persistently.
+No measurement history is stored persistently. After a reboot there is intentionally no persisted measurement cache; the first valid response establishes the new RAM cache.
 
 ## TM1637 display
 
@@ -257,7 +266,7 @@ Stored:
 - Device name
 - Language and theme
 - Wi-Fi SSID/password
-- External API host and poll interval
+- External API host, port and poll interval
 - NTP server and POSIX timezone
 - Display settings
 
@@ -306,7 +315,7 @@ The manifest contains only release metadata, for example:
 
 ```json
 {
-  "version": "v0.1.10",
+  "version": "v0.1.11",
   "firmware": "firmware.bin",
   "size": 412345,
   "sha256": "..."
@@ -347,7 +356,8 @@ A cache-busting query parameter is added to manifest and firmware requests so a 
 - v0.1.1 through v0.1.6 used GitHub Release metadata/assets and the Release-asset download path proved unreliable on the real ESP8266.
 - v0.1.7 introduced the redirect-free channel, but v0.1.7/v0.1.8 still had a firmware-stream handoff bug during flashing.
 - **v0.1.9 fixes that stream-write bug and is the minimum recommended base for OTA validation.**
-- **v0.1.10 can be installed from v0.1.9 to validate the complete redirect-free OTA path.**
+- v0.1.10 successfully validated the complete redirect-free OTA path on real hardware.
+- v0.1.11 keeps that OTA path and adds the non-blocking external API poller plus configurable API port.
 
 Do not run a full flash erase if existing EEPROM settings should be retained.
 
@@ -359,7 +369,7 @@ The OTA channel is hard-pinned to `syschelle/espDisplay`, branch `ota`, and file
 
 `.github/workflows/release-firmware.yml` builds the `d1_mini` ESP8266 environment on pushes and pull requests to `main`. Tags matching `v*` perform both the normal GitHub Release and the dedicated ESP8266 OTA publication.
 
-For a tag such as `v0.1.10`, the workflow:
+For a tag such as `v0.1.11`, the workflow:
 
 1. Validates that the tag exactly matches `FW_VERSION` in `src/version.h`.
 2. Installs PlatformIO and runs the project checks.
@@ -379,7 +389,7 @@ The project starts at **v0.1.0**.
 `src/version.h` is the firmware's version source of truth:
 
 ```cpp
-#define FW_VERSION "v0.1.10"
+#define FW_VERSION "v0.1.11"
 ```
 
 The tag validation step prevents a GitHub release whose tag differs from the compiled firmware version. Every published functional change must receive a new version; never replace behavior under an already published version.
@@ -395,7 +405,7 @@ src/
   settings.*           EEPROM-backed preferences-style persistence and validation
   network.*            Wi-Fi and fallback AP
   time_service.*       NTP / local time
-  external_api.*       Remote HTTP polling and RAM cache
+  external_api.*       Cooperative remote HTTP state machine and RAM cache
   display_format.*     Four-digit formatting logic
   display.*            TM1637 rendering and clock/alternate modes
   logging.*            Fixed-size RAM log

@@ -227,6 +227,10 @@ const char INDEX_HTML[] PROGMEM = R"ED8266(
               <small class="hint"><code>/api/current-values</code></small>
             </div>
             <div class="form-group">
+              <label for="apiPort" data-i18n="settings.apiPort">Port</label>
+              <input id="apiPort" type="number" min="1" max="65535" step="1" value="80">
+            </div>
+            <div class="form-group">
               <label for="apiPollSeconds" data-i18n="settings.apiPoll">Pollingintervall (s)</label>
               <input id="apiPollSeconds" type="number" min="5" max="300" step="1">
             </div>

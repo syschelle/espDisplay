@@ -30,14 +30,14 @@ const I18N = {
     "settings.themeLight":"Hell","settings.themeDark":"Dunkel","settings.wifi":"WLAN","settings.password":"Passwort",
     "settings.passwordPh":"Leer lassen, um das gespeicherte Passwort beizubehalten","settings.passwordSaved":"Passwort ist gespeichert.",
     "settings.passwordMissing":"Kein Passwort gespeichert.","settings.api":"Externe API","settings.apiHost":"Host / IP-Adresse",
-    "settings.apiPoll":"Pollingintervall (s)","settings.ntp":"NTP","settings.ntpServer":"NTP-Server","settings.timezone":"POSIX-Zeitzone",
+    "settings.apiPort":"Port","settings.apiPoll":"Pollingintervall (s)","settings.ntp":"NTP","settings.ntpServer":"NTP-Server","settings.timezone":"POSIX-Zeitzone",
     "common.save":"Speichern","common.saved":"Gespeichert.","common.refresh":"Aktualisieren","common.failed":"Fehlgeschlagen",
     "log.title":"Systemprotokoll","log.clear":"Leeren","ota.title":"OTA Update","ota.channel":"Release-Kanal","ota.current":"Installiert",
     "ota.latest":"Verfügbar","ota.size":"Firmwaregröße","ota.status":"Status","ota.check":"Auf Update prüfen","ota.install":"Update installieren",
     "factory.title":"Werkseinstellungen","factory.warning":"Löscht WLAN-, API-, NTP- und Displayeinstellungen. Messwerte werden nicht dauerhaft gespeichert.",
     "factory.button":"Werkseinstellungen wiederherstellen","factory.confirm1":"Wirklich alle gespeicherten Einstellungen löschen?",
     "factory.confirm2":"Letzte Bestätigung: Das Gerät startet danach mit Werkseinstellungen neu.",
-    "state.connected":"Verbunden","state.unavailable":"Nicht erreichbar","state.notConfigured":"Nicht konfiguriert","state.stale":"Daten veraltet",
+    "state.connected":"Verbunden","state.requesting":"Abfrage läuft","state.unavailable":"Nicht erreichbar","state.notConfigured":"Nicht konfiguriert","state.stale":"Daten veraltet",
     "state.current":"Aktuell","state.enabled":"Aktiv","state.disabled":"Deaktiviert","state.synced":"Synchronisiert","state.notSynced":"Nicht synchronisiert",
     "state.ok":"OK","state.noData":"Keine Daten","state.clock":"Uhrzeit","state.updateAvailable":"Update verfügbar","state.upToDate":"Aktuell",
     "state.restart":"Gespeichert. Neustart wird ausgeführt."
@@ -65,14 +65,14 @@ const I18N = {
     "settings.themeLight":"Light","settings.themeDark":"Dark","settings.wifi":"Wi-Fi","settings.password":"Password",
     "settings.passwordPh":"Leave blank to keep the stored password","settings.passwordSaved":"A password is stored.",
     "settings.passwordMissing":"No password is stored.","settings.api":"External API","settings.apiHost":"Host / IP address",
-    "settings.apiPoll":"Polling interval (s)","settings.ntp":"NTP","settings.ntpServer":"NTP server","settings.timezone":"POSIX timezone",
+    "settings.apiPort":"Port","settings.apiPoll":"Polling interval (s)","settings.ntp":"NTP","settings.ntpServer":"NTP server","settings.timezone":"POSIX timezone",
     "common.save":"Save","common.saved":"Saved.","common.refresh":"Refresh","common.failed":"Failed",
     "log.title":"System Log","log.clear":"Clear","ota.title":"OTA Update","ota.channel":"Release channel","ota.current":"Installed",
     "ota.latest":"Available","ota.size":"Firmware size","ota.status":"Status","ota.check":"Check for update","ota.install":"Install update",
     "factory.title":"Factory Reset","factory.warning":"Deletes Wi-Fi, API, NTP and display settings. Measurements are never stored persistently.",
     "factory.button":"Restore factory settings","factory.confirm1":"Really delete all stored settings?",
     "factory.confirm2":"Final confirmation: the device will restart with factory settings.",
-    "state.connected":"Connected","state.unavailable":"Unavailable","state.notConfigured":"Not configured","state.stale":"Data stale",
+    "state.connected":"Connected","state.requesting":"Request in progress","state.unavailable":"Unavailable","state.notConfigured":"Not configured","state.stale":"Data stale",
     "state.current":"Current","state.enabled":"Enabled","state.disabled":"Disabled","state.synced":"Synchronized","state.notSynced":"Not synchronized",
     "state.ok":"OK","state.noData":"No data","state.clock":"Clock","state.updateAvailable":"Update available","state.upToDate":"Up to date",
     "state.restart":"Saved. Restarting device."
@@ -223,6 +223,7 @@ function populateSettings(){
   $("wifiPassword").value="";
   text("wifiPasswordState",settings.wifi.passwordConfigured?t("settings.passwordSaved"):t("settings.passwordMissing"));
   $("apiHost").value=settings.api.host||"";
+  $("apiPort").value=settings.api.port||80;
   $("apiPollSeconds").value=settings.api.pollSeconds;
   $("ntpServer").value=settings.ntp.server||"";
   $("timezone").value=settings.ntp.timezone||"";
@@ -260,7 +261,7 @@ function renderState(){
 
   const api=state.api;
   const configured=api.configured;
-  badge("apiBadge",!configured?t("state.notConfigured"):api.connected?t("state.connected"):t("state.unavailable"),!configured?"neutral":api.connected?"good":"bad");
+  badge("apiBadge",!configured?t("state.notConfigured"):api.requestInProgress?t("state.requesting"):api.connected?t("state.connected"):t("state.unavailable"),!configured?"neutral":api.requestInProgress?"neutral":api.connected?"good":"bad");
   text("apiServer",configured?api.endpoint:"--");
   text("apiLastRequest",api.lastAttemptAgeSeconds==null?"--":fmtAge(api.lastAttemptAgeSeconds));
   text("apiLastMeasurement",state.external.lastMeasurementAt||"--");
@@ -334,7 +335,7 @@ $("systemForm").addEventListener("submit",async e=>{
   try{
     const body={
       deviceName:$("deviceName").value.trim(),language:$("language").value,theme:$("theme").value,
-      wifiSsid:$("wifiSsid").value.trim(),apiHost:$("apiHost").value.trim(),apiPollSeconds:Number($("apiPollSeconds").value),
+      wifiSsid:$("wifiSsid").value.trim(),apiHost:$("apiHost").value.trim(),apiPort:Number($("apiPort").value),apiPollSeconds:Number($("apiPollSeconds").value),
       ntpServer:$("ntpServer").value.trim(),timezone:$("timezone").value.trim()
     };
     if($("wifiPassword").value.length) body.wifiPassword=$("wifiPassword").value;

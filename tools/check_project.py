@@ -65,6 +65,7 @@ def test_web_assets() -> None:
     assert "/script.js" in html and "/style.css" in html
     assert '<input id="displayClkGpio" type="number"' in html
     assert '<input id="displayDioGpio" type="number"' in html
+    assert '<input id="apiPort" type="number" min="1" max="65535"' in html
     assert '<select id="displayClkGpio"' not in html
     assert '<select id="displayDioGpio"' not in html
     assert "String.replace" not in html
@@ -106,9 +107,21 @@ def test_architecture_guards() -> None:
         assert token not in all_cpp, f"forbidden GrowTent/ESP32 token remains: {token}"
 
     assert 'EXTERNAL_API_PATH[] = "/api/current-values"' in config
-    assert "API_HTTP_TIMEOUT_MS = 4000UL" in config
+    assert "DEFAULT_API_PORT = 80" in config
+    assert "API_CONNECT_TIMEOUT_MS = 1200UL" in config
+    assert "API_RESPONSE_TIMEOUT_MS = 60000UL" in config
+    assert "API_INACTIVITY_TIMEOUT_MS = 60000UL" in config
+    assert "API_READ_BUDGET_BYTES = 384" in config
     assert "MAX_EXTERNAL_API_BYTES = 8192" in config
-    assert "http.setTimeout(API_HTTP_TIMEOUT_MS)" in external
+    assert "HTTPClient" not in external, "external API polling must not use blocking ESP8266HTTPClient"
+    assert ".GET()" not in external and "getString()" not in external, "external API polling must remain cooperative"
+    assert "RequestState::Headers" in external and "RequestState::Body" in external
+    assert "API_READ_BUDGET_BYTES" in external
+    assert "client_.available()" in external
+    assert "client_.connect(cfg.apiHost, cfg.apiPort)" in external
+    assert "Connection: close" in external and "Accept-Encoding: identity" in external
+    assert "Transfer-Encoding:" in external and "chunked" in external
+    assert "Deliberately keep all last-known-good numeric values" in external
     assert "values_ = next" in external
     assert "markFailure" in external
     for field in [
@@ -140,9 +153,11 @@ def test_architecture_guards() -> None:
     web = (SRC / "web.cpp").read_text(encoding="utf-8")
     assert "displayClkGpio" in models and "displayDioGpio" in models
     assert "LEGACY_SETTINGS_SCHEMA_VERSION = 1" in config
-    assert "SETTINGS_SCHEMA_VERSION = 2" in config
-    assert "PersistedSettingsRecordV1" in settings and "PersistedSettingsRecordV2" in settings
-    assert "Settings migrated from schema 1 to schema 2" in settings
+    assert "PREVIOUS_SETTINGS_SCHEMA_VERSION = 2" in config
+    assert "SETTINGS_SCHEMA_VERSION = 3" in config
+    assert "PersistedSettingsRecordV1" in settings and "PersistedSettingsRecordV2" in settings and "PersistedSettingsRecordV3" in settings
+    assert "apiPort" in models and "apiPort" in settings
+    assert "Settings migrated from schema %u to schema %u" in settings
     assert "TM1637 initialized: CLK GPIO%u, DIO GPIO%u" in display
     assert "new (displayStorage_) TM1637Display" in display
     display_format = (SRC / "display_format.cpp").read_text(encoding="utf-8")
@@ -160,6 +175,8 @@ def test_architecture_guards() -> None:
     main_cpp = (SRC / "main.cpp").read_text(encoding="utf-8")
     assert main_cpp.index("displayService.begin(settings)") < main_cpp.index("networkService.begin(settings)"), "Conn must appear before Wi-Fi/NTP boot waits"
     assert 'root["clkGpio"]' in web and 'root["dioGpio"]' in web
+    assert 'root["apiPort"]' in web and 'settings.apiPort' in web
+    assert 'externalApiService.requestInProgress()' in web
     assert "restartScheduled" in web
     assert "sendProgmemAsset" in web
     assert "chunkedResponseModeStart" in web and "sendContent_P" in web

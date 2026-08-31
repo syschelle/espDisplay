@@ -201,6 +201,7 @@ void WebService::handleSettingsGet() {
   out += F(",\"wifi\":{\"ssid\":"); appendQuoted(out, settings.wifiSsid);
   out += F(",\"passwordConfigured\":"); out += settings.wifiPassword[0] ? F("true") : F("false");
   out += F("},\"api\":{\"host\":"); appendQuoted(out, settings.apiHost);
+  out += F(",\"port\":"); out += String(settings.apiPort);
   out += F(",\"pollSeconds\":"); out += String(settings.apiPollSeconds);
   out += F("},\"ntp\":{\"server\":"); appendQuoted(out, settings.ntpServer);
   out += F(",\"timezone\":"); appendQuoted(out, settings.timezone);
@@ -243,11 +244,17 @@ void WebService::handleStateGet() {
 
   out += F(",\"api\":{\"configured\":"); out += externalApiService.configured(settings) ? F("true") : F("false");
   out += F(",\"connected\":"); out += v.lastRequestOk ? F("true") : F("false");
+  out += F(",\"requestInProgress\":"); out += externalApiService.requestInProgress() ? F("true") : F("false");
   out += F(",\"valid\":"); out += v.valid ? F("true") : F("false");
   out += F(",\"stale\":"); out += v.stale ? F("true") : F("false");
   out += F(",\"endpoint\":");
   if (settings.apiHost[0]) {
-    String endpoint = F("http://"); endpoint += settings.apiHost; endpoint += EXTERNAL_API_PATH; appendQuoted(out, endpoint.c_str());
+    String endpoint = F("http://");
+    endpoint += settings.apiHost;
+    endpoint += ':';
+    endpoint += String(settings.apiPort);
+    endpoint += EXTERNAL_API_PATH;
+    appendQuoted(out, endpoint.c_str());
   } else appendQuoted(out, "");
   out += F(",\"httpStatus\":"); out += String(v.lastHttpStatus);
   out += F(",\"lastError\":"); appendQuoted(out, v.lastError);
@@ -447,6 +454,7 @@ void WebService::handleSystemSettingsPost() {
       !jsonStringTo(next.apiHost, sizeof(next.apiHost), root["apiHost"]) ||
       !jsonStringTo(next.ntpServer, sizeof(next.ntpServer), root["ntpServer"]) ||
       !jsonStringTo(next.timezone, sizeof(next.timezone), root["timezone"]) ||
+      !root["apiPort"].is<int>() ||
       !root["apiPollSeconds"].is<int>()) {
     sendError(400, "Missing or invalid system settings");
     return;
@@ -463,6 +471,13 @@ void WebService::handleSystemSettingsPost() {
     next.wifiPassword[0] = '\0';
   }
   if (next.wifiSsid[0] == '\0') next.wifiPassword[0] = '\0';
+
+  const int apiPort = root["apiPort"].as<int>();
+  if (apiPort < 1 || apiPort > 65535) {
+    sendError(400, "API port must be between 1 and 65535");
+    return;
+  }
+  next.apiPort = static_cast<uint16_t>(apiPort);
 
   const int pollSeconds = root["apiPollSeconds"].as<int>();
   if (pollSeconds < MIN_API_POLL_SECONDS || pollSeconds > MAX_API_POLL_SECONDS) {
@@ -483,7 +498,8 @@ void WebService::handleSystemSettingsPost() {
   const bool ntpChanged = changed(settings.ntpServer, normalized.ntpServer) ||
                           changed(settings.timezone, normalized.timezone);
   const bool apiHostChanged = changed(settings.apiHost, normalized.apiHost);
-  const bool apiChanged = apiHostChanged || settings.apiPollSeconds != normalized.apiPollSeconds;
+  const bool apiEndpointChanged = apiHostChanged || settings.apiPort != normalized.apiPort;
+  const bool apiChanged = apiEndpointChanged || settings.apiPollSeconds != normalized.apiPollSeconds;
 
   if (!settingsManager.save(normalized)) {
     sendError(500, settingsManager.lastError());
@@ -492,7 +508,7 @@ void WebService::handleSystemSettingsPost() {
   settings = normalized;
 
   if (ntpChanged) timeService.forceResync(settings, networkService.connected());
-  if (apiHostChanged) externalApiService.clearCache();
+  if (apiEndpointChanged) externalApiService.clearCache();
   else if (apiChanged) externalApiService.forcePoll();
 
   String out = F("{\"ok\":true,\"restartScheduled\":");

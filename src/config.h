@@ -38,10 +38,14 @@ static constexpr uint32_t WIFI_AP_STOP_DELAY_MS = 10000UL;
 // External API
 // -----------------------------------------------------------------------------
 static constexpr char EXTERNAL_API_PATH[] = "/api/current-values";
+static constexpr uint16_t DEFAULT_API_PORT = 80;
 static constexpr uint16_t DEFAULT_API_POLL_SECONDS = 10;
 static constexpr uint16_t MIN_API_POLL_SECONDS = 5;
 static constexpr uint16_t MAX_API_POLL_SECONDS = 300;
-static constexpr uint32_t API_HTTP_TIMEOUT_MS = 4000UL;
+static constexpr uint32_t API_CONNECT_TIMEOUT_MS = 1200UL;
+static constexpr uint32_t API_RESPONSE_TIMEOUT_MS = 60000UL;
+static constexpr uint32_t API_INACTIVITY_TIMEOUT_MS = 60000UL;
+static constexpr size_t API_READ_BUDGET_BYTES = 384;
 static constexpr size_t MAX_EXTERNAL_API_BYTES = 8192;
 
 // -----------------------------------------------------------------------------
@@ -87,7 +91,8 @@ static constexpr bool isRecommendedDisplayGpio(uint8_t gpio) {
 static constexpr size_t EEPROM_SETTINGS_BYTES = 512;
 static constexpr uint32_t EEPROM_SETTINGS_MAGIC = 0x45443832UL;  // "ED82"
 static constexpr uint16_t LEGACY_SETTINGS_SCHEMA_VERSION = 1;
-static constexpr uint16_t SETTINGS_SCHEMA_VERSION = 2;
+static constexpr uint16_t PREVIOUS_SETTINGS_SCHEMA_VERSION = 2;
+static constexpr uint16_t SETTINGS_SCHEMA_VERSION = 3;
 
 static constexpr size_t LOG_LINE_COUNT = 30;
 static constexpr size_t LOG_LINE_LENGTH = 128;

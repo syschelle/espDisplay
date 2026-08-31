@@ -104,6 +104,7 @@ struct AppSettings {
   char wifiPassword[65] = "";
 
   char apiHost[65] = "";
+  uint16_t apiPort = 80;
   uint16_t apiPollSeconds = 10;
 
   char ntpServer[65] = "de.pool.ntp.org";

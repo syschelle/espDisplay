@@ -104,9 +104,39 @@ struct PersistedSettingsRecordV2 {
   PersistedSettingsPayloadV2 payload;
   uint32_t crc32;
 };
+
+struct PersistedSettingsPayloadV3 {
+  // Keep the complete v2 payload as an exact prefix and append new fields.
+  char deviceName[33];
+  char language[3];
+  char theme[6];
+  char wifiSsid[33];
+  char wifiPassword[65];
+  char apiHost[65];
+  uint16_t apiPollSeconds;
+  char ntpServer[65];
+  char timezone[65];
+  uint8_t displayEnabled;
+  uint8_t displayBrightness;
+  uint8_t selectedMetric;
+  uint8_t displayMode;
+  uint16_t displayUpdateMs;
+  uint16_t alternateSeconds;
+  uint8_t displayClkGpio;
+  uint8_t displayDioGpio;
+  uint16_t apiPort;
+};
+
+struct PersistedSettingsRecordV3 {
+  uint32_t magic;
+  uint16_t schema;
+  uint16_t payloadSize;
+  PersistedSettingsPayloadV3 payload;
+  uint32_t crc32;
+};
 #pragma pack(pop)
 
-static_assert(sizeof(PersistedSettingsRecordV2) <= EEPROM_SETTINGS_BYTES,
+static_assert(sizeof(PersistedSettingsRecordV3) <= EEPROM_SETTINGS_BYTES,
               "EEPROM settings record exceeds configured storage size");
 
 uint32_t crc32Update(uint32_t crc, const uint8_t* data, size_t length) {
@@ -139,8 +169,15 @@ bool recordValid(const PersistedSettingsRecordV1& record) {
 
 bool recordValid(const PersistedSettingsRecordV2& record) {
   if (record.magic != EEPROM_SETTINGS_MAGIC) return false;
-  if (record.schema != SETTINGS_SCHEMA_VERSION) return false;
+  if (record.schema != PREVIOUS_SETTINGS_SCHEMA_VERSION) return false;
   if (record.payloadSize != sizeof(PersistedSettingsPayloadV2)) return false;
+  return record.crc32 == payloadCrc(record.schema, record.payloadSize, record.payload);
+}
+
+bool recordValid(const PersistedSettingsRecordV3& record) {
+  if (record.magic != EEPROM_SETTINGS_MAGIC) return false;
+  if (record.schema != SETTINGS_SCHEMA_VERSION) return false;
+  if (record.payloadSize != sizeof(PersistedSettingsPayloadV3)) return false;
   return record.crc32 == payloadCrc(record.schema, record.payloadSize, record.payload);
 }
 
@@ -170,6 +207,7 @@ void fromCommonPayload(const PersistedSettingsPayloadV1& source, AppSettings& ta
 
 void fromPayload(const PersistedSettingsPayloadV1& source, AppSettings& target) {
   fromCommonPayload(source, target);
+  target.apiPort = DEFAULT_API_PORT;
   target.displayClkGpio = DEFAULT_TM1637_CLK_GPIO;
   target.displayDioGpio = DEFAULT_TM1637_DIO_GPIO;
 
@@ -184,11 +222,19 @@ void fromPayload(const PersistedSettingsPayloadV2& source, AppSettings& target) 
   PersistedSettingsPayloadV1 common{};
   memcpy(&common, &source, sizeof(common));
   fromCommonPayload(common, target);
+  target.apiPort = DEFAULT_API_PORT;
   target.displayClkGpio = source.displayClkGpio;
   target.displayDioGpio = source.displayDioGpio;
 }
 
-void toPayload(const AppSettings& source, PersistedSettingsPayloadV2& target) {
+void fromPayload(const PersistedSettingsPayloadV3& source, AppSettings& target) {
+  PersistedSettingsPayloadV2 previous{};
+  memcpy(&previous, &source, sizeof(previous));
+  fromPayload(previous, target);
+  target.apiPort = source.apiPort;
+}
+
+void toPayload(const AppSettings& source, PersistedSettingsPayloadV3& target) {
   memset(&target, 0, sizeof(target));
   copyText(target.deviceName, source.deviceName);
   copyText(target.language, source.language);
@@ -207,6 +253,7 @@ void toPayload(const AppSettings& source, PersistedSettingsPayloadV2& target) {
   target.alternateSeconds = source.alternateSeconds;
   target.displayClkGpio = source.displayClkGpio;
   target.displayDioGpio = source.displayDioGpio;
+  target.apiPort = source.apiPort;
 }
 
 }  // namespace
@@ -242,9 +289,12 @@ bool SettingsManager::load(AppSettings& out) {
     return true;
   }
 
+  bool migrate = false;
+  uint16_t sourceSchema = header.schema;
+
   if (header.schema == SETTINGS_SCHEMA_VERSION &&
-      header.payloadSize == sizeof(PersistedSettingsPayloadV2)) {
-    PersistedSettingsRecordV2 record{};
+      header.payloadSize == sizeof(PersistedSettingsPayloadV3)) {
+    PersistedSettingsRecordV3 record{};
     EEPROM.get(0, record);
     if (!recordValid(record)) {
       validateAndNormalize(out);
@@ -253,6 +303,18 @@ bool SettingsManager::load(AppSettings& out) {
       return true;
     }
     fromPayload(record.payload, out);
+  } else if (header.schema == PREVIOUS_SETTINGS_SCHEMA_VERSION &&
+             header.payloadSize == sizeof(PersistedSettingsPayloadV2)) {
+    PersistedSettingsRecordV2 previous{};
+    EEPROM.get(0, previous);
+    if (!recordValid(previous)) {
+      validateAndNormalize(out);
+      setError("Previous settings failed CRC validation; defaults are active");
+      appLog.warn("SETTINGS", lastError_);
+      return true;
+    }
+    fromPayload(previous.payload, out);
+    migrate = true;
   } else if (header.schema == LEGACY_SETTINGS_SCHEMA_VERSION &&
              header.payloadSize == sizeof(PersistedSettingsPayloadV1)) {
     PersistedSettingsRecordV1 legacy{};
@@ -263,18 +325,8 @@ bool SettingsManager::load(AppSettings& out) {
       appLog.warn("SETTINGS", lastError_);
       return true;
     }
-
     fromPayload(legacy.payload, out);
-    if (!validateAndNormalize(out)) {
-      appLog.warn("SETTINGS", "Legacy settings required normalization during migration");
-    }
-    if (!save(out)) {
-      appLog.warn("SETTINGS", "Legacy settings loaded but migration write failed");
-    } else {
-      appLog.info("SETTINGS", "Settings migrated from schema 1 to schema 2");
-    }
-    setError("");
-    return true;
+    migrate = true;
   } else {
     validateAndNormalize(out);
     setError("Unsupported settings schema; defaults are active");
@@ -282,7 +334,25 @@ bool SettingsManager::load(AppSettings& out) {
     return true;
   }
 
-  if (!validateAndNormalize(out)) {
+  const bool normalized = validateAndNormalize(out);
+  if (!normalized) {
+    appLog.warn("SETTINGS", "Stored settings required normalization");
+  }
+
+  if (migrate) {
+    if (!save(out)) {
+      appLog.warn("SETTINGS", "Settings loaded but migration write failed");
+    } else {
+      char message[80];
+      snprintf(message, sizeof(message), "Settings migrated from schema %u to schema %u",
+               static_cast<unsigned>(sourceSchema), static_cast<unsigned>(SETTINGS_SCHEMA_VERSION));
+      appLog.info("SETTINGS", message);
+    }
+    setError("");
+    return true;
+  }
+
+  if (!normalized) {
     setError("Settings contained invalid values; defaults/clamps applied");
     appLog.warn("SETTINGS", lastError_);
   } else {
@@ -305,10 +375,10 @@ bool SettingsManager::save(const AppSettings& input) {
     return false;
   }
 
-  PersistedSettingsRecordV2 record{};
+  PersistedSettingsRecordV3 record{};
   record.magic = EEPROM_SETTINGS_MAGIC;
   record.schema = SETTINGS_SCHEMA_VERSION;
-  record.payloadSize = sizeof(PersistedSettingsPayloadV2);
+  record.payloadSize = sizeof(PersistedSettingsPayloadV3);
   toPayload(normalized, record.payload);
   record.crc32 = payloadCrc(record.schema, record.payloadSize, record.payload);
 
@@ -319,7 +389,7 @@ bool SettingsManager::save(const AppSettings& input) {
     return false;
   }
 
-  PersistedSettingsRecordV2 verify{};
+  PersistedSettingsRecordV3 verify{};
   EEPROM.get(0, verify);
   if (!recordValid(verify) || verify.crc32 != record.crc32) {
     setError("EEPROM verification failed");
@@ -382,6 +452,11 @@ bool SettingsManager::validateAndNormalize(AppSettings& s) {
 
   if (s.apiHost[0] != '\0' && !isValidHost(s.apiHost)) {
     s.apiHost[0] = '\0';
+    valid = false;
+  }
+
+  if (s.apiPort == 0) {
+    s.apiPort = DEFAULT_API_PORT;
     valid = false;
   }
 
