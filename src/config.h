@@ -18,6 +18,8 @@ static constexpr char PROJECT_NAME[] = "espDisplay";
 static constexpr char OTA_GITHUB_OWNER[] = "syschelle";
 static constexpr char OTA_GITHUB_REPO[] = "espDisplay";
 static constexpr char OTA_ASSET_NAME[] = "firmware.bin";
+static constexpr char OTA_BRANCH[] = "ota";
+static constexpr char OTA_MANIFEST_NAME[] = "manifest.json";
 
 // -----------------------------------------------------------------------------
 // Network defaults

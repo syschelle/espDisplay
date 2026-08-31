@@ -19,6 +19,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -49,7 +51,7 @@ jobs:
       - name: Build ESP8266 firmware
         run: pio run -e d1_mini
 
-      - name: Prepare release asset
+      - name: Prepare release and OTA assets
         if: startsWith(github.ref, 'refs/tags/')
         shell: bash
         run: |
@@ -57,6 +59,28 @@ jobs:
           test -s .pio/build/d1_mini/firmware.bin
           cp .pio/build/d1_mini/firmware.bin firmware.bin
           sha256sum firmware.bin > firmware.bin.sha256
+
+          SIZE="$(stat -c%s firmware.bin)"
+          SHA256="$(sha256sum firmware.bin | awk '{print $1}')"
+          cat > manifest.json <<JSON
+          {
+            "version": "$GITHUB_REF_NAME",
+            "firmware": "firmware.bin",
+            "size": $SIZE,
+            "sha256": "$SHA256"
+          }
+          JSON
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path('manifest.json').read_text(encoding='utf-8'))
+          assert data['version'].startswith('v')
+          assert data['firmware'] == 'firmware.bin'
+          assert isinstance(data['size'], int) and data['size'] > 0
+          assert len(data['sha256']) == 64
+          print(json.dumps(data, indent=2))
+          PY
 
       - name: Create or update GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
@@ -79,3 +103,55 @@ jobs:
               --title "espDisplay $GITHUB_REF_NAME" \
               --generate-notes
           fi
+
+      - name: Publish redirect-free OTA channel
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          OTA_WORKTREE="${RUNNER_TEMP}/espdisplay-ota"
+          rm -rf "$OTA_WORKTREE"
+          git fetch origin ota || true
+
+          if git show-ref --verify --quiet refs/remotes/origin/ota; then
+            git worktree add -B ota "$OTA_WORKTREE" origin/ota
+          else
+            git worktree add --detach "$OTA_WORKTREE"
+            (
+              cd "$OTA_WORKTREE"
+              git switch --orphan ota
+              git rm -rf . >/dev/null 2>&1 || true
+            )
+          fi
+
+          (
+            cd "$OTA_WORKTREE"
+            find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+            cp "$GITHUB_WORKSPACE/firmware.bin" firmware.bin
+            cp "$GITHUB_WORKSPACE/firmware.bin.sha256" firmware.bin.sha256
+            cp "$GITHUB_WORKSPACE/manifest.json" manifest.json
+            cat > README.md <<'TXT'
+          # espDisplay OTA channel
+
+          This branch is generated automatically by GitHub Actions.
+
+          Files used by ESP8266 OTA clients:
+
+          - `manifest.json`
+          - `firmware.bin`
+          - `firmware.bin.sha256`
+
+          Do not edit this branch manually.
+          TXT
+
+            git add firmware.bin firmware.bin.sha256 manifest.json README.md
+            if git diff --cached --quiet; then
+              echo "OTA channel already contains these exact artifacts."
+            else
+              git commit -m "Publish OTA ${GITHUB_REF_NAME}"
+            fi
+            git push origin HEAD:ota
+          )

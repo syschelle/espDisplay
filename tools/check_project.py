@@ -165,16 +165,28 @@ def test_architecture_guards() -> None:
     ota = (SRC / "ota.cpp").read_text(encoding="utf-8")
     web_js = (SRC / "java_script.h").read_text(encoding="utf-8")
     cfg = (SRC / "config.h").read_text(encoding="utf-8")
+    workflow = (ROOT / ".github" / "workflows" / "release-firmware.yml").read_text(encoding="utf-8")
     assert 'OTA_GITHUB_REPO[] = "espDisplay"' in cfg
+    assert 'OTA_BRANCH[] = "ota"' in cfg
+    assert 'OTA_MANIFEST_NAME[] = "manifest.json"' in cfg
     assert "#include <ESP8266httpUpdate.h>" not in ota and "ESPhttpUpdate." not in ota, "OTA install path must not use ESPhttpUpdate"
-    assert "HTTPC_DISABLE_FOLLOW_REDIRECTS" in ota, "OTA must resolve GitHub release redirects explicitly"
-    assert "redirectHttp.getLocation()" in ota, "OTA must read the GitHub release asset Location header"
-    assert "https://release-assets.githubusercontent.com/" in ota, "OTA must pin the GitHub release asset CDN host"
-    assert "Firmware download returned HTTP %d" in ota, "OTA failures must log the actual firmware HTTP code"
-    assert "Update.writeStream(*stream)" in ota, "OTA must stream the verified firmware body directly to the updater"
-    assert "imageSize != status_.firmwareSize" in ota, "OTA must compare CDN Content-Length with GitHub asset metadata"
-    assert "header[0] != 0xE9" in ota, "OTA must validate the ESP8266 firmware magic byte"
+    assert "api.github.com" not in ota, "ESP8266 OTA checks must not use the GitHub Releases API"
+    assert "release-assets.githubusercontent.com" not in ota, "ESP8266 OTA must not depend on GitHub release-asset redirects"
+    assert "https://raw.githubusercontent.com/%s/%s/%s/%s" in ota, "OTA must use the fixed raw.githubusercontent.com channel"
+    assert 'strcmp(firmwareName, OTA_ASSET_NAME) != 0' in ota, "OTA manifest must be pinned to firmware.bin"
+    assert "isSha256Hex" in ota, "OTA manifest must validate the generated SHA-256 field"
+    assert "OTA manifest returned HTTP %d" in ota, "manifest failures must log the actual HTTP status"
+    assert "OTA firmware returned HTTP %d" in ota, "firmware failures must log the actual HTTP status"
+    assert "Update.writeStream(*stream)" in ota, "OTA must stream firmware directly to the ESP8266 updater"
+    assert "contentLength > 0" in ota and "status_.firmwareSize" in ota, "OTA must compare HTTP size when available with manifest metadata"
+    assert "header[0] != 0xE9" in ota and "Update.write(header, sizeof(header))" in ota, "OTA must validate and preserve the ESP8266 firmware header"
     assert "otaUpdateActive" in web_js, "frontend must pause state polling while OTA is running"
+    assert "Prepare release and OTA assets" in workflow
+    assert '"version": "$GITHUB_REF_NAME"' in workflow
+    assert '"firmware": "firmware.bin"' in workflow
+    assert "Publish redirect-free OTA channel" in workflow
+    assert "git push origin HEAD:ota" in workflow
+    assert "manifest.json" in workflow and "firmware.bin.sha256" in workflow
     assert "GrowTent" not in ota
 
 

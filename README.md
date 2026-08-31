@@ -17,7 +17,7 @@ This repository is **not** a GrowTent firmware variant. It has its own PlatformI
 - NTP with POSIX timezone support and bounded boot synchronization
 - Compact EEPROM-backed settings persistence with magic/schema/CRC validation
 - Read-only local `/api/state` for the web UI
-- GitHub Release based OTA update channel dedicated to this project
+- Redirect-free GitHub `ota` branch used as the ESP8266 OTA channel, while tagged releases still publish normal GitHub Release assets
 - Factory reset that deletes configuration and reboots
 - Compact in-memory system log
 
@@ -278,35 +278,96 @@ The web UI uses two browser confirmations and then sends an explicit `RESET` tok
 
 OTA is dedicated to this project and cannot intentionally use GrowTent or GrowTent-S3 firmware.
 
-Configured channel in `src/config.h`:
+Repository:
 
 ```text
 syschelle/espDisplay
 ```
 
-The firmware checks the repository's latest GitHub Release, requires an exact `firmware.bin` asset, compares semantic versions, and checks the advertised firmware size against available OTA sketch space. Starting with v0.1.5, the firmware resolves the GitHub release-asset redirect explicitly, opens a fresh TLS connection to `release-assets.githubusercontent.com`, requires HTTP 200 plus a valid Content-Length, compares that length with GitHub's asset metadata, verifies the ESP8266 firmware magic byte, and streams the image directly through `Update.writeStream()`. The browser pauses status polling while OTA is running.
+Starting with **v0.1.7**, the ESP8266 no longer queries the GitHub Releases API and no longer downloads firmware through GitHub Release asset URLs. Real-device testing showed that the Release asset redirect path is unnecessarily fragile on the resource-constrained ESP8266.
 
-**Transition from the development v0.1.0 build:** that firmware still points to `syschelle/EnergyDisplay8266`. Because the final repository is `syschelle/espDisplay`, v0.1.1 must be installed once by USB/serial unless a transition release is also created in the old repository. From v0.1.1 onward, OTA uses `syschelle/espDisplay`.
+Instead, tagged releases publish a small dedicated `ota` branch containing exactly:
 
+```text
+manifest.json
+firmware.bin
+firmware.bin.sha256
+README.md
+```
 
-Starting with **v0.1.5**, OTA no longer delegates the firmware download to `ESPhttpUpdate`. GitHub release asset links return an HTTP redirect to a short-lived signed CDN URL. espDisplay now resolves that redirect explicitly and logs the real HTTP status from both stages. This avoids the previous generic `-104 / Wrong HTTP Code` error hiding the actual server response. The resolved download host is restricted to GitHub's `release-assets.githubusercontent.com` domain.
+The ESP8266 uses two fixed HTTPS resources:
+
+```text
+https://raw.githubusercontent.com/syschelle/espDisplay/ota/manifest.json
+https://raw.githubusercontent.com/syschelle/espDisplay/ota/firmware.bin
+```
+
+The manifest contains only release metadata, for example:
+
+```json
+{
+  "version": "v0.1.8",
+  "firmware": "firmware.bin",
+  "size": 412345,
+  "sha256": "..."
+}
+```
+
+The firmware does **not** accept an arbitrary firmware URL from the manifest. The binary URL is constructed internally from the fixed owner, repository, `ota` branch and `firmware.bin` name. This keeps the OTA channel pinned to this project.
+
+The check path:
+
+1. Downloads `ota/manifest.json` from `raw.githubusercontent.com`.
+2. Requires HTTP 200 and a small valid JSON document.
+3. Requires a semantic `version` value.
+4. Requires `firmware` to be exactly `firmware.bin`.
+5. Requires a positive firmware `size`.
+6. Validates that the manifest contains a 64-character hexadecimal SHA-256 field.
+7. Compares the manifest version with the installed `FW_VERSION`.
+8. Verifies that the advertised size fits the available OTA sketch space.
+
+The install path:
+
+1. Downloads the fixed `ota/firmware.bin` URL directly from `raw.githubusercontent.com`.
+2. Requires HTTP 200; no GitHub Release asset redirect is involved.
+3. Compares HTTP Content-Length with the manifest size when Content-Length is available.
+4. Requires the ESP8266 firmware magic byte `0xE9`.
+5. Starts `Update.begin()` with the exact manifest size.
+6. Streams the binary directly through `Update.writeStream()`.
+7. Requires the exact advertised byte count and successful `Update.end()`.
+8. Reboots only after the web request has reported success.
+
+The browser pauses `/api/state` polling while an OTA installation is running to avoid extra sockets and expected timeouts while the ESP8266 is downloading and flashing.
+
+A cache-busting query parameter is added to manifest and firmware requests so a newly published OTA branch is not confused with an older CDN-cached copy immediately after a release.
+
+### Upgrade transition
+
+- The early development v0.1.0 firmware used the old `syschelle/EnergyDisplay8266` channel.
+- v0.1.1 through v0.1.6 used GitHub Release metadata/assets and the Release-asset download path proved unreliable on the real ESP8266.
+- **v0.1.7 must therefore be installed once via USB/serial on affected devices.**
+- **v0.1.8 is the first dedicated validation release for the redirect-free `ota` branch.**
+
+Do not run a full flash erase if existing EEPROM settings should be retained.
 
 ### OTA security note
 
-Version 0.1.1 restricts metadata and firmware to the configured GitHub project but uses BearSSL `setInsecure()` for GitHub HTTPS to avoid embedding a certificate chain that may expire or change. This protects against accidentally using another configured firmware channel but is **not equivalent to cryptographic firmware authenticity**. A future hardening step should use ESP8266 signed binaries or another maintained trust mechanism before deploying OTA across an untrusted network.
+The OTA channel is hard-pinned to `syschelle/espDisplay`, branch `ota`, and file `firmware.bin`, but BearSSL currently uses `setInsecure()` to avoid embedding a GitHub certificate chain that may change. The SHA-256 value published in the same channel is useful release metadata but does not provide independent authenticity when fetched over the same unauthenticated TLS trust mode. A future hardening step should use validated CA trust or ESP8266 signed binaries.
 
 ## GitHub Release workflow
 
-`.github/workflows/release-firmware.yml` builds the `d1_mini` ESP8266 environment on pushes and pull requests to `main`. Tags matching `v*` additionally create/update the GitHub Release.
+`.github/workflows/release-firmware.yml` builds the `d1_mini` ESP8266 environment on pushes and pull requests to `main`. Tags matching `v*` perform both the normal GitHub Release and the dedicated ESP8266 OTA publication.
 
-For a tag such as `v0.1.6`, the workflow:
+For a tag such as `v0.1.8`, the workflow:
 
 1. Validates that the tag exactly matches `FW_VERSION` in `src/version.h`.
-2. Installs PlatformIO.
+2. Installs PlatformIO and runs the project checks.
 3. Runs `pio run -e d1_mini`.
 4. Verifies `.pio/build/d1_mini/firmware.bin` exists and is non-empty.
 5. Produces `firmware.bin` and `firmware.bin.sha256`.
-6. Creates the GitHub Release or updates its assets.
+6. Generates `manifest.json` from the tag, real firmware size and SHA-256.
+7. Creates or updates the normal GitHub Release with `firmware.bin` and `firmware.bin.sha256`.
+8. Creates or updates branch `ota` and publishes `manifest.json`, `firmware.bin`, `firmware.bin.sha256` and its generated README.
 
 No ESP32 or ESP32-S3 environment exists in this repository.
 
@@ -317,7 +378,7 @@ The project starts at **v0.1.0**.
 `src/version.h` is the firmware's version source of truth:
 
 ```cpp
-#define FW_VERSION "v0.1.6"
+#define FW_VERSION "v0.1.8"
 ```
 
 The tag validation step prevents a GitHub release whose tag differs from the compiled firmware version. Every published functional change must receive a new version; never replace behavior under an already published version.
@@ -337,7 +398,7 @@ src/
   display_format.*     Four-digit formatting logic
   display.*            TM1637 rendering and clock/alternate modes
   logging.*            Fixed-size RAM log
-  ota.*                GitHub release check and ESP8266 OTA
+  ota.*                Redirect-free manifest check and ESP8266 OTA
   web.*                Local web server and JSON endpoints
   index_html.h         Static PROGMEM HTML
   style_css.h          Static PROGMEM CSS
@@ -381,8 +442,10 @@ src/
 ### OTA fails
 
 - Verify Wi-Fi/internet access.
-- Verify the latest release has a `firmware.bin` asset.
-- Verify the release tag is newer than the installed semantic version.
+- Verify the tagged workflow completed successfully.
+- Verify branch `ota` contains `manifest.json`, `firmware.bin` and `firmware.bin.sha256`.
+- Open the raw `manifest.json` and confirm its version is newer than the installed semantic version.
+- Check the system log for the actual manifest/firmware HTTP status.
 - Verify enough OTA sketch space is available.
 
 ## License

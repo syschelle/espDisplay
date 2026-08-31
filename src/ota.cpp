@@ -5,6 +5,7 @@
 #include <ESP8266WiFi.h>
 #include <WiFiClientSecureBearSSL.h>
 #include <Updater.h>
+#include <ctype.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -16,6 +17,28 @@
 OtaService otaService;
 
 namespace {
+
+constexpr size_t kMaxManifestBytes = 2048;
+
+void buildRawUrl(char* out, size_t outSize, const char* fileName) {
+  if (!out || outSize == 0) return;
+  snprintf(
+      out,
+      outSize,
+      "https://raw.githubusercontent.com/%s/%s/%s/%s",
+      OTA_GITHUB_OWNER,
+      OTA_GITHUB_REPO,
+      OTA_BRANCH,
+      fileName);
+}
+
+bool isSha256Hex(const char* value) {
+  if (!value || strlen(value) != 64) return false;
+  for (size_t i = 0; i < 64; ++i) {
+    if (!isxdigit(static_cast<unsigned char>(value[i]))) return false;
+  }
+  return true;
+}
 
 }  // namespace
 
@@ -45,100 +68,111 @@ bool OtaService::check() {
     return false;
   }
 
-  char apiUrl[160];
-  snprintf(
-      apiUrl,
-      sizeof(apiUrl),
-      "https://api.github.com/repos/%s/%s/releases/latest",
-      OTA_GITHUB_OWNER,
-      OTA_GITHUB_REPO);
+  char manifestBase[192];
+  buildRawUrl(manifestBase, sizeof(manifestBase), OTA_MANIFEST_NAME);
+
+  // A short cache-buster avoids receiving an older manifest from an
+  // intermediate cache immediately after a new tagged release was published.
+  String manifestUrl(manifestBase);
+  manifestUrl += F("?cb=");
+  manifestUrl += String(millis());
 
   BearSSL::WiFiClientSecure client;
-  // GitHub's server certificate chain can change. v0.1.1 therefore pins the
-  // OTA origin/repository but uses BearSSL insecure mode. See README security
-  // notes and the future signed-firmware hardening path.
   client.setInsecure();
-  client.setTimeout(12);
+  client.setTimeout(15);
 
   HTTPClient http;
-  http.setTimeout(12000);
+  http.setTimeout(15000);
   http.setReuse(false);
+  http.setFollowRedirects(HTTPC_DISABLE_FOLLOW_REDIRECTS);
   http.useHTTP10(true);
   http.setUserAgent(String(PROJECT_NAME) + "/" + FW_VERSION);
 
-  if (!http.begin(client, apiUrl)) {
-    fail("GitHub API initialization failed");
+  if (!http.begin(client, manifestUrl)) {
+    fail("OTA manifest request initialization failed");
     return false;
   }
-  http.addHeader("Accept", "application/vnd.github+json");
+  http.addHeader("Accept", "application/json");
+  http.addHeader("Cache-Control", "no-cache");
 
   const int code = http.GET();
   if (code != HTTP_CODE_OK) {
     char message[96];
-    snprintf(message, sizeof(message), "GitHub release check returned HTTP %d", code);
+    snprintf(message, sizeof(message), "OTA manifest returned HTTP %d", code);
     http.end();
     fail(message);
     return false;
   }
 
   const int responseSize = http.getSize();
-  if (responseSize > 32768) {
+  if (responseSize > static_cast<int>(kMaxManifestBytes)) {
     http.end();
-    fail("GitHub release metadata is unexpectedly large");
+    fail("OTA manifest is unexpectedly large");
     return false;
   }
 
   JsonDocument filter;
-  filter["tag_name"] = true;
-  JsonObject assetFilter = filter["assets"][0].to<JsonObject>();
-  assetFilter["name"] = true;
-  assetFilter["browser_download_url"] = true;
-  assetFilter["size"] = true;
+  filter["version"] = true;
+  filter["firmware"] = true;
+  filter["size"] = true;
+  filter["sha256"] = true;
 
   JsonDocument doc;
   const DeserializationError err = deserializeJson(
       doc,
       http.getStream(),
       DeserializationOption::Filter(filter),
-      DeserializationOption::NestingLimit(4));
+      DeserializationOption::NestingLimit(2));
   http.end();
 
   if (err) {
-    fail("GitHub release metadata is invalid JSON");
+    fail("OTA manifest is invalid JSON");
     return false;
   }
 
-  const char* latest = doc["tag_name"] | "";
+  const char* latest = doc["version"] | "";
+  const char* firmwareName = doc["firmware"] | "";
+  const char* sha256 = doc["sha256"] | "";
+  const uint32_t firmwareSize = doc["size"] | 0U;
+
   int latestMajor = 0, latestMinor = 0, latestPatch = 0;
   if (!parseSemver(latest, latestMajor, latestMinor, latestPatch)) {
-    fail("Latest GitHub tag is not a semantic version");
+    fail("OTA manifest version is not a semantic version");
     return false;
   }
+  if (strcmp(firmwareName, OTA_ASSET_NAME) != 0) {
+    fail("OTA manifest firmware name is invalid");
+    return false;
+  }
+  if (firmwareSize == 0) {
+    fail("OTA manifest firmware size is invalid");
+    return false;
+  }
+  if (!isSha256Hex(sha256)) {
+    fail("OTA manifest SHA-256 is invalid");
+    return false;
+  }
+
   copyText(status_.latestVersion, latest);
+  status_.firmwareSize = firmwareSize;
 
-  JsonArrayConst assets = doc["assets"].as<JsonArrayConst>();
-  for (JsonObjectConst asset : assets) {
-    const char* name = asset["name"] | "";
-    if (strcmp(name, OTA_ASSET_NAME) != 0) continue;
-
-    const char* url = asset["browser_download_url"] | "";
-    if (!isAllowedFirmwareUrl(url)) {
-      fail("Release asset URL does not match the configured OTA channel");
-      return false;
-    }
-
-    copyText(status_.firmwareUrl, url);
-    status_.firmwareSize = asset["size"] | 0U;
-    break;
+  char firmwareBase[192];
+  buildRawUrl(firmwareBase, sizeof(firmwareBase), OTA_ASSET_NAME);
+  String firmwareUrl(firmwareBase);
+  firmwareUrl += F("?v=");
+  firmwareUrl += status_.latestVersion;
+  if (firmwareUrl.length() >= sizeof(status_.firmwareUrl)) {
+    fail("OTA firmware URL is unexpectedly long");
+    return false;
   }
+  copyText(status_.firmwareUrl, firmwareUrl.c_str());
 
-  if (status_.firmwareUrl[0] == '\0') {
-    fail("firmware.bin is missing from the latest release");
+  if (!isAllowedFirmwareUrl(status_.firmwareUrl)) {
+    fail("Firmware URL is outside the configured OTA channel");
     return false;
   }
 
-  if (status_.firmwareSize > 0 &&
-      status_.firmwareSize > static_cast<uint32_t>(ESP.getFreeSketchSpace())) {
+  if (status_.firmwareSize > static_cast<uint32_t>(ESP.getFreeSketchSpace())) {
     fail("Firmware image does not fit the available OTA flash space");
     return false;
   }
@@ -165,7 +199,7 @@ bool OtaService::install() {
   }
 
   if (!status_.checked || !status_.ok || !status_.updateAvailable ||
-      status_.firmwareUrl[0] == '\0') {
+      status_.firmwareUrl[0] == '\0' || status_.firmwareSize == 0) {
     fail("No checked OTA update is ready to install");
     return false;
   }
@@ -175,177 +209,93 @@ bool OtaService::install() {
     return false;
   }
 
-  if (status_.firmwareSize > 0 &&
-      status_.firmwareSize > static_cast<uint32_t>(ESP.getFreeSketchSpace())) {
+  if (status_.firmwareSize > static_cast<uint32_t>(ESP.getFreeSketchSpace())) {
     fail("Firmware image does not fit the available OTA flash space");
     return false;
   }
 
   appLog.info("OTA", "Firmware update started");
 
-  // Resolve the GitHub release download redirect ourselves. GitHub release
-  // assets are served through a short-lived signed URL on
-  // release-assets.githubusercontent.com. Handling the redirect explicitly
-  // lets us open a completely fresh TLS connection for the CDN and, more
-  // importantly, report the real HTTP status code instead of ESPhttpUpdate's
-  // generic -104 / Wrong HTTP Code result.
-  BearSSL::WiFiClientSecure redirectClient;
-  redirectClient.setInsecure();
-  redirectClient.setTimeout(30);
+  BearSSL::WiFiClientSecure client;
+  client.setInsecure();
+  client.setTimeout(30);
 
-  HTTPClient redirectHttp;
-  redirectHttp.setReuse(false);
-  redirectHttp.setTimeout(30000);
-  redirectHttp.setFollowRedirects(HTTPC_DISABLE_FOLLOW_REDIRECTS);
-  redirectHttp.useHTTP10(true);
-  redirectHttp.setUserAgent(String(PROJECT_NAME) + "/" + FW_VERSION);
+  HTTPClient http;
+  http.setReuse(false);
+  http.setTimeout(30000);
+  http.setFollowRedirects(HTTPC_DISABLE_FOLLOW_REDIRECTS);
+  http.useHTTP10(true);
+  http.setUserAgent(String(PROJECT_NAME) + "/" + FW_VERSION);
 
-  if (!redirectHttp.begin(redirectClient, status_.firmwareUrl)) {
-    fail("Firmware redirect request initialization failed");
+  if (!http.begin(client, status_.firmwareUrl)) {
+    fail("OTA firmware request initialization failed");
     return false;
   }
+  http.addHeader("Accept", "application/octet-stream");
+  http.addHeader("Cache-Control", "no-cache");
 
-  const int redirectCode = redirectHttp.GET();
-  if (redirectCode <= 0) {
+  const int code = http.GET();
+  if (code != HTTP_CODE_OK) {
     char message[96];
-    snprintf(message, sizeof(message), "Firmware redirect request failed: %d", redirectCode);
-    redirectHttp.end();
+    snprintf(message, sizeof(message), "OTA firmware returned HTTP %d", code);
+    http.end();
     fail(message);
     return false;
   }
 
-  {
-    char message[72];
-    snprintf(message, sizeof(message), "GitHub asset response HTTP %d", redirectCode);
-    appLog.info("OTA", message);
-  }
-
-  String downloadUrl;
-  if (redirectCode == HTTP_CODE_OK) {
-    // GitHub may theoretically serve the asset directly. Preserve the
-    // original URL in that case, but close this request and reopen it below
-    // so the actual firmware transfer still gets a clean connection.
-    downloadUrl = status_.firmwareUrl;
-  } else if (redirectCode == HTTP_CODE_MOVED_PERMANENTLY ||
-             redirectCode == HTTP_CODE_FOUND ||
-             redirectCode == HTTP_CODE_SEE_OTHER ||
-             redirectCode == HTTP_CODE_TEMPORARY_REDIRECT ||
-             redirectCode == 308) {
-    downloadUrl = redirectHttp.getLocation();
-  } else {
-    char message[96];
-    snprintf(message, sizeof(message), "GitHub asset request returned HTTP %d", redirectCode);
-    redirectHttp.end();
-    fail(message);
-    return false;
-  }
-  redirectHttp.end();
-
-  if (downloadUrl.length() == 0) {
-    fail("GitHub asset redirect did not provide a Location header");
-    return false;
-  }
-
-  const bool directGithubUrl = downloadUrl.startsWith("https://github.com/");
-  const bool releaseAssetUrl =
-      downloadUrl.startsWith("https://release-assets.githubusercontent.com/");
-  if (!directGithubUrl && !releaseAssetUrl) {
-    fail("GitHub redirected firmware to an unexpected host");
-    return false;
-  }
-
-  if (releaseAssetUrl) {
-    appLog.info("OTA", "GitHub release asset redirect resolved");
-  }
-
-  BearSSL::WiFiClientSecure firmwareClient;
-  firmwareClient.setInsecure();
-  firmwareClient.setTimeout(30);
-
-  HTTPClient firmwareHttp;
-  firmwareHttp.setReuse(false);
-  firmwareHttp.setTimeout(30000);
-  firmwareHttp.setFollowRedirects(HTTPC_DISABLE_FOLLOW_REDIRECTS);
-  firmwareHttp.useHTTP10(true);
-  firmwareHttp.setUserAgent(String(PROJECT_NAME) + "/" + FW_VERSION);
-
-  if (!firmwareHttp.begin(firmwareClient, downloadUrl)) {
-    fail("Firmware CDN request initialization failed");
-    return false;
-  }
-  firmwareHttp.addHeader("Accept", "application/octet-stream");
-
-  const int firmwareCode = firmwareHttp.GET();
-  if (firmwareCode != HTTP_CODE_OK) {
-    char message[96];
-    snprintf(message, sizeof(message), "Firmware download returned HTTP %d", firmwareCode);
-    firmwareHttp.end();
-    fail(message);
-    return false;
-  }
-
-  const int contentLength = firmwareHttp.getSize();
-  if (contentLength <= 0) {
-    firmwareHttp.end();
-    fail("Firmware download did not report a valid Content-Length");
-    return false;
-  }
-
-  const uint32_t imageSize = static_cast<uint32_t>(contentLength);
-  if (status_.firmwareSize > 0 && imageSize != status_.firmwareSize) {
+  const int contentLength = http.getSize();
+  if (contentLength > 0 && static_cast<uint32_t>(contentLength) != status_.firmwareSize) {
     char message[96];
     snprintf(
         message,
         sizeof(message),
         "Firmware size mismatch: expected %lu, received %lu",
         static_cast<unsigned long>(status_.firmwareSize),
-        static_cast<unsigned long>(imageSize));
-    firmwareHttp.end();
+        static_cast<unsigned long>(contentLength));
+    http.end();
     fail(message);
     return false;
   }
 
-  if (imageSize > static_cast<uint32_t>(ESP.getFreeSketchSpace())) {
-    firmwareHttp.end();
-    fail("Firmware image does not fit the available OTA flash space");
-    return false;
-  }
-
-  WiFiClient* stream = firmwareHttp.getStreamPtr();
+  WiFiClient* stream = http.getStreamPtr();
   if (!stream) {
-    firmwareHttp.end();
-    fail("Firmware download stream is unavailable");
+    http.end();
+    fail("OTA firmware stream is unavailable");
     return false;
   }
 
   uint8_t header[4] = {0, 0, 0, 0};
-  if (stream->peekBytes(header, sizeof(header)) != sizeof(header) || header[0] != 0xE9) {
-    firmwareHttp.end();
+  stream->setTimeout(5000);
+  if (stream->readBytes(header, sizeof(header)) != sizeof(header) || header[0] != 0xE9) {
+    http.end();
     fail("Downloaded file is not a valid ESP8266 firmware image");
     return false;
   }
 
-  if (!Update.begin(imageSize, U_FLASH)) {
+  if (!Update.begin(status_.firmwareSize, U_FLASH)) {
     char message[96];
     snprintf(message, sizeof(message), "Flash initialization failed: %u", Update.getError());
-    firmwareHttp.end();
+    http.end();
     fail(message);
     return false;
   }
 
   appLog.info("OTA", "Firmware download accepted; flashing started");
-  const size_t written = Update.writeStream(*stream);
-  if (written != imageSize) {
+  size_t written = Update.write(header, sizeof(header));
+  if (written == sizeof(header)) {
+    written += Update.writeStream(*stream);
+  }
+  if (written != status_.firmwareSize) {
     char message[96];
     snprintf(
         message,
         sizeof(message),
         "Firmware write incomplete: %lu/%lu bytes (error %u)",
         static_cast<unsigned long>(written),
-        static_cast<unsigned long>(imageSize),
+        static_cast<unsigned long>(status_.firmwareSize),
         Update.getError());
     (void)Update.end();
-    firmwareHttp.end();
+    http.end();
     fail(message);
     return false;
   }
@@ -353,12 +303,12 @@ bool OtaService::install() {
   if (!Update.end() || !Update.isFinished()) {
     char message[96];
     snprintf(message, sizeof(message), "Firmware finalization failed: %u", Update.getError());
-    firmwareHttp.end();
+    http.end();
     fail(message);
     return false;
   }
 
-  firmwareHttp.end();
+  http.end();
   status_.lastError[0] = '\0';
   status_.ok = true;
   appLog.info("OTA", "Download and flash completed");
@@ -413,20 +363,10 @@ int OtaService::compareSemver(const char* a, const char* b) {
 bool OtaService::isAllowedFirmwareUrl(const char* url) {
   if (!url || !*url) return false;
 
-  char expectedPrefix[160];
-  snprintf(
-      expectedPrefix,
-      sizeof(expectedPrefix),
-      "https://github.com/%s/%s/releases/download/",
-      OTA_GITHUB_OWNER,
-      OTA_GITHUB_REPO);
+  char expected[192];
+  buildRawUrl(expected, sizeof(expected), OTA_ASSET_NAME);
+  const size_t expectedLen = strlen(expected);
 
-  if (strncmp(url, expectedPrefix, strlen(expectedPrefix)) != 0) {
-    return false;
-  }
-
-  const size_t len = strlen(url);
-  const size_t assetLen = strlen(OTA_ASSET_NAME);
-  return len >= assetLen &&
-         strcmp(url + len - assetLen, OTA_ASSET_NAME) == 0;
+  if (strncmp(url, expected, expectedLen) != 0) return false;
+  return url[expectedLen] == '\0' || url[expectedLen] == '?';
 }

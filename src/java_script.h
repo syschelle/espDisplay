@@ -382,7 +382,7 @@ $("factoryResetBtn").addEventListener("click",async()=>{
 async function init(){
   setupNavigation();
   try{await loadSettings();}catch(err){console.error(err);}
-  text("otaChannel","syschelle/espDisplay");
+  text("otaChannel","syschelle/espDisplay · ota");
   await loadState();
   setInterval(loadState,5000);
 }
