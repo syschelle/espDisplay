@@ -97,6 +97,7 @@ const METRICS = [
 
 let settings = null;
 let state = null;
+let otaUpdateActive = false;
 let lang = "de";
 
 const $ = id => document.getElementById(id);
@@ -303,7 +304,10 @@ function renderState(){
 }
 
 async function loadSettings(){ settings=await apiFetch("/api/settings"); populateSettings(); }
-async function loadState(){ try{ state=await apiFetch("/api/state"); renderState(); }catch(err){ badge("overallBadge",t("state.unavailable"),"bad"); } }
+async function loadState(){
+  if(otaUpdateActive)return;
+  try{ state=await apiFetch("/api/state"); renderState(); }catch(err){ badge("overallBadge",t("state.unavailable"),"bad"); }
+}
 async function loadLog(){ try{const data=await apiFetch("/api/log"); $("logView").textContent=(data.lines||[]).join("\n")||"--";}catch(err){$("logView").textContent=err.message;} }
 
 $("displayMode").addEventListener("change",updateDisplayModeUi);
@@ -357,8 +361,17 @@ $("otaCheckBtn").addEventListener("click",async()=>{
   }catch(err){text("otaStatus",`${t("common.failed")}: ${err.message}`);}
 });
 $("otaInstallBtn").addEventListener("click",async()=>{
+  otaUpdateActive=true;
   $("otaInstallBtn").disabled=true;text("otaStatus","…");
-  try{await apiFetch("/api/ota/update",{method:"POST"});text("otaStatus",t("state.restart"));}catch(err){text("otaStatus",`${t("common.failed")}: ${err.message}`);$("otaInstallBtn").disabled=false;}
+  try{
+    await apiFetch("/api/ota/update",{method:"POST"});
+    text("otaStatus",t("state.restart"));
+  }catch(err){
+    otaUpdateActive=false;
+    text("otaStatus",`${t("common.failed")}: ${err.message}`);
+    $("otaInstallBtn").disabled=false;
+    await loadState();
+  }
 });
 
 $("factoryResetBtn").addEventListener("click",async()=>{

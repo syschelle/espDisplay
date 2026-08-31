@@ -284,9 +284,12 @@ Configured channel in `src/config.h`:
 syschelle/espDisplay
 ```
 
-The firmware checks the repository's latest GitHub Release, requires an exact `firmware.bin` asset, compares semantic versions, checks the advertised firmware size against available OTA sketch space, downloads only from the configured repository's release asset path, and reboots only after the updater reports success.
+The firmware checks the repository's latest GitHub Release, requires an exact `firmware.bin` asset, compares semantic versions, and checks the advertised firmware size against available OTA sketch space. Starting with v0.1.5, the firmware resolves the GitHub release-asset redirect explicitly, opens a fresh TLS connection to `release-assets.githubusercontent.com`, requires HTTP 200 plus a valid Content-Length, compares that length with GitHub's asset metadata, verifies the ESP8266 firmware magic byte, and streams the image directly through `Update.writeStream()`. The browser pauses status polling while OTA is running.
 
 **Transition from the development v0.1.0 build:** that firmware still points to `syschelle/EnergyDisplay8266`. Because the final repository is `syschelle/espDisplay`, v0.1.1 must be installed once by USB/serial unless a transition release is also created in the old repository. From v0.1.1 onward, OTA uses `syschelle/espDisplay`.
+
+
+Starting with **v0.1.5**, OTA no longer delegates the firmware download to `ESPhttpUpdate`. GitHub release asset links return an HTTP redirect to a short-lived signed CDN URL. espDisplay now resolves that redirect explicitly and logs the real HTTP status from both stages. This avoids the previous generic `-104 / Wrong HTTP Code` error hiding the actual server response. The resolved download host is restricted to GitHub's `release-assets.githubusercontent.com` domain.
 
 ### OTA security note
 
@@ -296,7 +299,7 @@ Version 0.1.1 restricts metadata and firmware to the configured GitHub project b
 
 `.github/workflows/release-firmware.yml` builds the `d1_mini` ESP8266 environment on pushes and pull requests to `main`. Tags matching `v*` additionally create/update the GitHub Release.
 
-For a tag such as `v0.1.4`, the workflow:
+For a tag such as `v0.1.6`, the workflow:
 
 1. Validates that the tag exactly matches `FW_VERSION` in `src/version.h`.
 2. Installs PlatformIO.
@@ -314,7 +317,7 @@ The project starts at **v0.1.0**.
 `src/version.h` is the firmware's version source of truth:
 
 ```cpp
-#define FW_VERSION "v0.1.4"
+#define FW_VERSION "v0.1.6"
 ```
 
 The tag validation step prevents a GitHub release whose tag differs from the compiled firmware version. Every published functional change must receive a new version; never replace behavior under an already published version.

@@ -3,7 +3,6 @@
 #include <ArduinoJson.h>
 #include <ESP8266HTTPClient.h>
 #include <ESP8266WiFi.h>
-#include <ESP8266httpUpdate.h>
 #include <WiFiClientSecureBearSSL.h>
 #include <Updater.h>
 #include <stdlib.h>
@@ -184,58 +183,187 @@ bool OtaService::install() {
 
   appLog.info("OTA", "Firmware update started");
 
-  BearSSL::WiFiClientSecure client;
-  client.setInsecure();
-  client.setTimeout(30);
+  // Resolve the GitHub release download redirect ourselves. GitHub release
+  // assets are served through a short-lived signed URL on
+  // release-assets.githubusercontent.com. Handling the redirect explicitly
+  // lets us open a completely fresh TLS connection for the CDN and, more
+  // importantly, report the real HTTP status code instead of ESPhttpUpdate's
+  // generic -104 / Wrong HTTP Code result.
+  BearSSL::WiFiClientSecure redirectClient;
+  redirectClient.setInsecure();
+  redirectClient.setTimeout(30);
 
-  // GitHub release assets redirect from github.com to a signed CDN URL.
-  // ESP8266HTTPClient can fail while following such redirects when the
-  // connection is reused. Build the HTTPClient explicitly and disable reuse
-  // so every redirect is handled over a fresh connection.
-  HTTPClient downloadHttp;
-  downloadHttp.setReuse(false);
-  downloadHttp.setTimeout(30000);
-  downloadHttp.setRedirectLimit(5);
-  downloadHttp.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
-  downloadHttp.useHTTP10(true);
-  if (!downloadHttp.begin(client, status_.firmwareUrl)) {
-    fail("Firmware download initialization failed");
+  HTTPClient redirectHttp;
+  redirectHttp.setReuse(false);
+  redirectHttp.setTimeout(30000);
+  redirectHttp.setFollowRedirects(HTTPC_DISABLE_FOLLOW_REDIRECTS);
+  redirectHttp.useHTTP10(true);
+  redirectHttp.setUserAgent(String(PROJECT_NAME) + "/" + FW_VERSION);
+
+  if (!redirectHttp.begin(redirectClient, status_.firmwareUrl)) {
+    fail("Firmware redirect request initialization failed");
     return false;
   }
 
-  ESPhttpUpdate.rebootOnUpdate(false);
-  ESPhttpUpdate.setClientTimeout(30000);
-  ESPhttpUpdate.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
-  ESPhttpUpdate.setLedPin(-1);
-  ESPhttpUpdate.onStart([]() {
-    appLog.info("OTA", "Download started");
-  });
-  ESPhttpUpdate.onEnd([]() {
-    appLog.info("OTA", "Download and flash completed");
-  });
-  ESPhttpUpdate.onError([](int error) {
+  const int redirectCode = redirectHttp.GET();
+  if (redirectCode <= 0) {
     char message[96];
-    snprintf(message, sizeof(message), "Updater error %d", error);
-    appLog.error("OTA", message);
-  });
-
-  const HTTPUpdateResult result = ESPhttpUpdate.update(downloadHttp, FW_VERSION);
-
-  if (result == HTTP_UPDATE_OK) {
-    appLog.info("OTA", "Update completed; reboot required");
-    return true;
-  }
-
-  if (result == HTTP_UPDATE_NO_UPDATES) {
-    fail("Updater reported no newer firmware");
+    snprintf(message, sizeof(message), "Firmware redirect request failed: %d", redirectCode);
+    redirectHttp.end();
+    fail(message);
     return false;
   }
 
-  const String detail = ESPhttpUpdate.getLastErrorString();
-  char message[96];
-  snprintf(message, sizeof(message), "Update failed: %s", detail.c_str());
-  fail(message);
-  return false;
+  {
+    char message[72];
+    snprintf(message, sizeof(message), "GitHub asset response HTTP %d", redirectCode);
+    appLog.info("OTA", message);
+  }
+
+  String downloadUrl;
+  if (redirectCode == HTTP_CODE_OK) {
+    // GitHub may theoretically serve the asset directly. Preserve the
+    // original URL in that case, but close this request and reopen it below
+    // so the actual firmware transfer still gets a clean connection.
+    downloadUrl = status_.firmwareUrl;
+  } else if (redirectCode == HTTP_CODE_MOVED_PERMANENTLY ||
+             redirectCode == HTTP_CODE_FOUND ||
+             redirectCode == HTTP_CODE_SEE_OTHER ||
+             redirectCode == HTTP_CODE_TEMPORARY_REDIRECT ||
+             redirectCode == 308) {
+    downloadUrl = redirectHttp.getLocation();
+  } else {
+    char message[96];
+    snprintf(message, sizeof(message), "GitHub asset request returned HTTP %d", redirectCode);
+    redirectHttp.end();
+    fail(message);
+    return false;
+  }
+  redirectHttp.end();
+
+  if (downloadUrl.length() == 0) {
+    fail("GitHub asset redirect did not provide a Location header");
+    return false;
+  }
+
+  const bool directGithubUrl = downloadUrl.startsWith("https://github.com/");
+  const bool releaseAssetUrl =
+      downloadUrl.startsWith("https://release-assets.githubusercontent.com/");
+  if (!directGithubUrl && !releaseAssetUrl) {
+    fail("GitHub redirected firmware to an unexpected host");
+    return false;
+  }
+
+  if (releaseAssetUrl) {
+    appLog.info("OTA", "GitHub release asset redirect resolved");
+  }
+
+  BearSSL::WiFiClientSecure firmwareClient;
+  firmwareClient.setInsecure();
+  firmwareClient.setTimeout(30);
+
+  HTTPClient firmwareHttp;
+  firmwareHttp.setReuse(false);
+  firmwareHttp.setTimeout(30000);
+  firmwareHttp.setFollowRedirects(HTTPC_DISABLE_FOLLOW_REDIRECTS);
+  firmwareHttp.useHTTP10(true);
+  firmwareHttp.setUserAgent(String(PROJECT_NAME) + "/" + FW_VERSION);
+
+  if (!firmwareHttp.begin(firmwareClient, downloadUrl)) {
+    fail("Firmware CDN request initialization failed");
+    return false;
+  }
+  firmwareHttp.addHeader("Accept", "application/octet-stream");
+
+  const int firmwareCode = firmwareHttp.GET();
+  if (firmwareCode != HTTP_CODE_OK) {
+    char message[96];
+    snprintf(message, sizeof(message), "Firmware download returned HTTP %d", firmwareCode);
+    firmwareHttp.end();
+    fail(message);
+    return false;
+  }
+
+  const int contentLength = firmwareHttp.getSize();
+  if (contentLength <= 0) {
+    firmwareHttp.end();
+    fail("Firmware download did not report a valid Content-Length");
+    return false;
+  }
+
+  const uint32_t imageSize = static_cast<uint32_t>(contentLength);
+  if (status_.firmwareSize > 0 && imageSize != status_.firmwareSize) {
+    char message[96];
+    snprintf(
+        message,
+        sizeof(message),
+        "Firmware size mismatch: expected %lu, received %lu",
+        static_cast<unsigned long>(status_.firmwareSize),
+        static_cast<unsigned long>(imageSize));
+    firmwareHttp.end();
+    fail(message);
+    return false;
+  }
+
+  if (imageSize > static_cast<uint32_t>(ESP.getFreeSketchSpace())) {
+    firmwareHttp.end();
+    fail("Firmware image does not fit the available OTA flash space");
+    return false;
+  }
+
+  WiFiClient* stream = firmwareHttp.getStreamPtr();
+  if (!stream) {
+    firmwareHttp.end();
+    fail("Firmware download stream is unavailable");
+    return false;
+  }
+
+  uint8_t header[4] = {0, 0, 0, 0};
+  if (stream->peekBytes(header, sizeof(header)) != sizeof(header) || header[0] != 0xE9) {
+    firmwareHttp.end();
+    fail("Downloaded file is not a valid ESP8266 firmware image");
+    return false;
+  }
+
+  if (!Update.begin(imageSize, U_FLASH)) {
+    char message[96];
+    snprintf(message, sizeof(message), "Flash initialization failed: %u", Update.getError());
+    firmwareHttp.end();
+    fail(message);
+    return false;
+  }
+
+  appLog.info("OTA", "Firmware download accepted; flashing started");
+  const size_t written = Update.writeStream(*stream);
+  if (written != imageSize) {
+    char message[96];
+    snprintf(
+        message,
+        sizeof(message),
+        "Firmware write incomplete: %lu/%lu bytes (error %u)",
+        static_cast<unsigned long>(written),
+        static_cast<unsigned long>(imageSize),
+        Update.getError());
+    (void)Update.end();
+    firmwareHttp.end();
+    fail(message);
+    return false;
+  }
+
+  if (!Update.end() || !Update.isFinished()) {
+    char message[96];
+    snprintf(message, sizeof(message), "Firmware finalization failed: %u", Update.getError());
+    firmwareHttp.end();
+    fail(message);
+    return false;
+  }
+
+  firmwareHttp.end();
+  status_.lastError[0] = '\0';
+  status_.ok = true;
+  appLog.info("OTA", "Download and flash completed");
+  appLog.info("OTA", "Update completed; reboot required");
+  return true;
 }
 
 bool OtaService::parseSemver(const char* value, int& major, int& minor, int& patch) {

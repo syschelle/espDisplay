@@ -149,7 +149,8 @@ def test_architecture_guards() -> None:
     assert "clockColonVisible" in display_format, "clock formatter must implement one-second colon blinking"
     assert "formatClockFrame" in display, "clock display must use the tested right-aligned clock formatter"
     assert "TM1637_CENTER_COLON_SEGMENT" in display, "clock display must drive the center colon in raw segment mode"
-    assert '" %u%02u"' in display_format, "single-digit hours must omit the leading zero and remain right-aligned"
+    assert "out.chars[0] = ' ';" in display_format, "single-digit hours must omit the leading zero and remain right-aligned"
+    assert "snprintf(out.chars" not in display_format, "clock renderer must not use warning-prone snprintf formatting"
     assert "lastClockSecond_" in display, "clock rendering must track seconds independently from metric refresh"
     assert "displayUpdateMs" in display and "showClock" in display
     assert 'root["clkGpio"]' in web and 'root["dioGpio"]' in web
@@ -162,12 +163,18 @@ def test_architecture_guards() -> None:
     assert 'mode != DisplayMode::Clock' in web, "clock-only mode must not require a metric"
 
     ota = (SRC / "ota.cpp").read_text(encoding="utf-8")
+    web_js = (SRC / "java_script.h").read_text(encoding="utf-8")
     cfg = (SRC / "config.h").read_text(encoding="utf-8")
     assert 'OTA_GITHUB_REPO[] = "espDisplay"' in cfg
-    assert "downloadHttp.setReuse(false)" in ota, "OTA GitHub redirects must not reuse the connection"
-    assert "downloadHttp.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS)" in ota
-    assert "ESPhttpUpdate.setClientTimeout(30000)" in ota
-    assert "ESPhttpUpdate.update(downloadHttp, FW_VERSION)" in ota
+    assert "#include <ESP8266httpUpdate.h>" not in ota and "ESPhttpUpdate." not in ota, "OTA install path must not use ESPhttpUpdate"
+    assert "HTTPC_DISABLE_FOLLOW_REDIRECTS" in ota, "OTA must resolve GitHub release redirects explicitly"
+    assert "redirectHttp.getLocation()" in ota, "OTA must read the GitHub release asset Location header"
+    assert "https://release-assets.githubusercontent.com/" in ota, "OTA must pin the GitHub release asset CDN host"
+    assert "Firmware download returned HTTP %d" in ota, "OTA failures must log the actual firmware HTTP code"
+    assert "Update.writeStream(*stream)" in ota, "OTA must stream the verified firmware body directly to the updater"
+    assert "imageSize != status_.firmwareSize" in ota, "OTA must compare CDN Content-Length with GitHub asset metadata"
+    assert "header[0] != 0xE9" in ota, "OTA must validate the ESP8266 firmware magic byte"
+    assert "otaUpdateActive" in web_js, "frontend must pause state polling while OTA is running"
     assert "GrowTent" not in ota
 
 

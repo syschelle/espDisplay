@@ -131,13 +131,18 @@ bool formatClockFrame(uint8_t hour, uint8_t minute, uint8_t second, ClockFrame& 
   out = ClockFrame();
   if (hour > 23U || minute > 59U || second > 59U) return false;
 
+  // Build the four physical clock positions explicitly. This keeps the
+  // representation warning-free and guarantees a terminating NUL byte.
   if (hour < 10U) {
-    snprintf(out.chars, sizeof(out.chars), " %u%02u",
-             static_cast<unsigned>(hour), static_cast<unsigned>(minute));
+    out.chars[0] = ' ';
+    out.chars[1] = static_cast<char>('0' + hour);
   } else {
-    snprintf(out.chars, sizeof(out.chars), "%02u%02u",
-             static_cast<unsigned>(hour), static_cast<unsigned>(minute));
+    out.chars[0] = static_cast<char>('0' + (hour / 10U));
+    out.chars[1] = static_cast<char>('0' + (hour % 10U));
   }
+  out.chars[2] = static_cast<char>('0' + (minute / 10U));
+  out.chars[3] = static_cast<char>('0' + (minute % 10U));
+  out.chars[4] = '\0';
   out.colonVisible = clockColonVisible(second);
   return true;
 }
