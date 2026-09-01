@@ -72,6 +72,10 @@ def test_web_assets() -> None:
     assert "http://" not in js and "https://" not in js, "browser JS must not call the external API"
     assert 'apiFetch("/api/state")' in js
     assert "setInterval(loadState,5000)" in js
+    assert "function fmtDateTime(value,timeZone)" in js
+    assert 'fmtDateTime(state.external.lastMeasurementAt,state.external.timezone)' in js
+    assert '"state.noMeasurement":"Noch keine Messung"' in js
+    assert '"state.noMeasurement":"No measurement yet"' in js
     assert "--header:#2c3e50" in css
     assert "@media" in css
 
@@ -213,9 +217,13 @@ def test_architecture_guards() -> None:
     assert "stream->peek() != 0xE9" in ota, "OTA must validate the ESP8266 firmware magic byte without consuming it"
     assert "readBytes(header" not in ota and "Update.write(header" not in ota, "OTA must not pre-consume the firmware header before Update.writeStream"
     assert "Update.writeStream(*stream, 60000)" in ota, "OTA must let the ESP8266 updater consume the stream from byte zero"
-    assert "externalApiService.suspend()" in web and "externalApiService.resume()" in web, "OTA handlers must release slow API resources before BearSSL TLS"
+    assert "startOtaHold()" in web and "releaseOtaHold()" in web, "OTA must coordinate an exclusive API/heap hold"
+    assert 'Update ready; external API remains paused for install' in web, "successful OTA checks must keep API polling suspended"
+    assert web.count("otaService.check()") >= 2, "OTA install must refresh the manifest while API polling is suspended"
+    assert "OTA_HOLD_TIMEOUT_MS = 300000UL" in (SRC / "web.h").read_text(encoding="utf-8"), "OTA hold must expire safely if install is abandoned"
     assert "HTTPClient::errorToString(code)" in ota, "negative OTA transport errors must include the ESP8266 HTTPClient reason"
     assert "ESP.getFreeHeap()" in ota, "OTA connection failures must include free-heap diagnostics"
+    assert "ESP.getMaxFreeBlockSize()" in ota and "ESP.getHeapFragmentation()" in ota, "OTA diagnostics must include largest heap block and fragmentation"
     assert "otaUpdateActive" in web_js, "frontend must pause state polling while OTA is running"
     assert "Prepare release and OTA assets" in workflow
     assert '"version": "$GITHUB_REF_NAME"' in workflow

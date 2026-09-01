@@ -16,6 +16,10 @@ class WebService {
   ESP8266WebServer server_;
   bool restartScheduled_ = false;
   uint32_t restartAtMs_ = 0;
+  bool otaHoldActive_ = false;
+  uint32_t otaHoldUntilMs_ = 0;
+
+  static constexpr uint32_t OTA_HOLD_TIMEOUT_MS = 300000UL;
 
   void registerRoutes();
   void sendJson(int status, const String& json);
@@ -32,6 +36,8 @@ class WebService {
   void handleOtaCheck();
   void handleOtaUpdate();
   void handleFactoryReset();
+  void startOtaHold();
+  void releaseOtaHold();
 };
 
 extern WebService webService;

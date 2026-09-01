@@ -40,6 +40,19 @@ bool isSha256Hex(const char* value) {
   return true;
 }
 
+void logHeapState(const char* phase) {
+  char message[112];
+  snprintf(
+      message,
+      sizeof(message),
+      "%s (free %lu, max block %lu, frag %u%%)",
+      phase ? phase : "OTA",
+      static_cast<unsigned long>(ESP.getFreeHeap()),
+      static_cast<unsigned long>(ESP.getMaxFreeBlockSize()),
+      static_cast<unsigned>(ESP.getHeapFragmentation()));
+  appLog.info("OTA", message);
+}
+
 }  // namespace
 
 void OtaService::begin() {
@@ -68,13 +81,7 @@ bool OtaService::check() {
     return false;
   }
 
-  char heapMessage[72];
-  snprintf(
-      heapMessage,
-      sizeof(heapMessage),
-      "Manifest check starting (free heap %lu)",
-      static_cast<unsigned long>(ESP.getFreeHeap()));
-  appLog.info("OTA", heapMessage);
+  logHeapState("Manifest check starting");
 
   char manifestBase[192];
   buildRawUrl(manifestBase, sizeof(manifestBase), OTA_MANIFEST_NAME);
@@ -111,10 +118,11 @@ bool OtaService::check() {
       snprintf(
           message,
           sizeof(message),
-          "OTA manifest connection failed %d: %.34s (heap %lu)",
+          "Manifest TLS failed %d: %.24s (free %lu/max %lu)",
           code,
           detail.c_str(),
-          static_cast<unsigned long>(ESP.getFreeHeap()));
+          static_cast<unsigned long>(ESP.getFreeHeap()),
+          static_cast<unsigned long>(ESP.getMaxFreeBlockSize()));
     } else {
       snprintf(message, sizeof(message), "OTA manifest returned HTTP %d", code);
     }
@@ -233,13 +241,7 @@ bool OtaService::install() {
     return false;
   }
 
-  char heapMessage[72];
-  snprintf(
-      heapMessage,
-      sizeof(heapMessage),
-      "Firmware update starting (free heap %lu)",
-      static_cast<unsigned long>(ESP.getFreeHeap()));
-  appLog.info("OTA", heapMessage);
+  logHeapState("Firmware update starting");
 
   BearSSL::WiFiClientSecure client;
   client.setInsecure();
@@ -267,10 +269,11 @@ bool OtaService::install() {
       snprintf(
           message,
           sizeof(message),
-          "OTA firmware connection failed %d: %.34s (heap %lu)",
+          "Firmware TLS failed %d: %.24s (free %lu/max %lu)",
           code,
           detail.c_str(),
-          static_cast<unsigned long>(ESP.getFreeHeap()));
+          static_cast<unsigned long>(ESP.getFreeHeap()),
+          static_cast<unsigned long>(ESP.getMaxFreeBlockSize()));
     } else {
       snprintf(message, sizeof(message), "OTA firmware returned HTTP %d", code);
     }

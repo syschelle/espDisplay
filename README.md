@@ -241,6 +241,8 @@ Pages:
 - OTA Update
 - Factory Reset
 
+On the **Status** page, `last_measurement_at` is rendered as a localized absolute date and time (for example `01.09.2026, 08:03:27`) using the timezone reported by the external API when it is a valid browser-supported IANA timezone. If no measurement timestamp is available yet, the UI shows a localized “No measurement yet” message. The separate data-age field remains available for relative freshness.
+
 The browser polls local `/api/state` every five seconds. Visible text is translated centrally in `src/java_script.h`; new UI strings should be added to the DE/EN i18n object instead of being scattered through event handlers.
 
 ### Local web endpoints
@@ -320,7 +322,7 @@ The manifest contains only release metadata, for example:
 
 ```json
 {
-  "version": "v0.1.13",
+  "version": "v0.1.15",
   "firmware": "firmware.bin",
   "size": 412345,
   "sha256": "..."
@@ -364,7 +366,9 @@ A cache-busting query parameter is added to manifest and firmware requests so a 
 - v0.1.10 successfully validated the complete redirect-free OTA path on real hardware.
 - v0.1.11 keeps that OTA path and adds the non-blocking external API poller plus configurable API port.
 - v0.1.12 prevents the slow API client from starving BearSSL/TLS during OTA checks by releasing API socket/buffer resources before OTA.
-- **v0.1.13 rounds the external air temperature to a whole degree with a degree symbol and makes alternate mode show the metric for exactly one second while the configured interval applies only to the clock.**
+- v0.1.13 rounds the external air temperature to a whole degree with a degree symbol and makes alternate mode show the metric for exactly one second while the configured interval applies only to the clock.
+- v0.1.14 keeps the external API suspended across the OTA check/install handoff to protect ESP8266 heap for BearSSL.
+- **v0.1.15 formats the API-provided last measurement timestamp as a localized date and time on the Status page.**
 
 Do not run a full flash erase if existing EEPROM settings should be retained.
 
@@ -376,7 +380,7 @@ The OTA channel is hard-pinned to `syschelle/espDisplay`, branch `ota`, and file
 
 `.github/workflows/release-firmware.yml` builds the `d1_mini` ESP8266 environment on pushes and pull requests to `main`. Tags matching `v*` perform both the normal GitHub Release and the dedicated ESP8266 OTA publication.
 
-For a tag such as `v0.1.13`, the workflow:
+For a tag such as `v0.1.15`, the workflow:
 
 1. Validates that the tag exactly matches `FW_VERSION` in `src/version.h`.
 2. Installs PlatformIO and runs the project checks.
@@ -396,7 +400,7 @@ The project starts at **v0.1.0**.
 `src/version.h` is the firmware's version source of truth:
 
 ```cpp
-#define FW_VERSION "v0.1.13"
+#define FW_VERSION "v0.1.15"
 ```
 
 The tag validation step prevents a GitHub release whose tag differs from the compiled firmware version. Every published functional change must receive a new version; never replace behavior under an already published version.

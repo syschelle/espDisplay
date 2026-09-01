@@ -95,10 +95,28 @@ void WebService::begin() {
 
 void WebService::tick() {
   server_.handleClient();
+
+  if (otaHoldActive_ && static_cast<int32_t>(millis() - otaHoldUntilMs_) >= 0) {
+    appLog.info("OTA", "OTA hold expired; external API polling resumed");
+    releaseOtaHold();
+  }
+
   if (restartScheduled_ && static_cast<int32_t>(millis() - restartAtMs_) >= 0) {
     delay(50);
     ESP.restart();
   }
+}
+
+void WebService::startOtaHold() {
+  externalApiService.suspend();
+  otaHoldActive_ = true;
+  otaHoldUntilMs_ = millis() + OTA_HOLD_TIMEOUT_MS;
+}
+
+void WebService::releaseOtaHold() {
+  otaHoldActive_ = false;
+  otaHoldUntilMs_ = 0;
+  externalApiService.resume();
 }
 
 void WebService::scheduleRestart(uint32_t delayMs) {
@@ -525,21 +543,32 @@ void WebService::handleLogClearPost() {
 }
 
 void WebService::handleOtaCheck() {
-  // BearSSL needs a large contiguous heap block. Suspend any slow external API
-  // request first so its socket and dynamic response buffer are released before
-  // the TLS manifest connection starts.
-  externalApiService.suspend();
-  delay(20);
+  // OTA gets exclusive use of the ESP8266 network/heap while an update is
+  // pending. In v0.1.13 the API poller was resumed immediately after this
+  // check; a slow response could then fragment/consume heap before the second
+  // BearSSL connection used for firmware.bin.
+  startOtaHold();
+  delay(150);
   yield();
 
   const bool otaOk = otaService.check();
-  externalApiService.resume();
-
   if (!otaOk) {
+    releaseOtaHold();
     sendError(502, otaService.status().lastError);
     return;
   }
+
   const OtaService::Status& s = otaService.status();
+  if (!s.updateAvailable) {
+    releaseOtaHold();
+  } else {
+    // Keep the API suspended while the user moves from "check" to "install".
+    // The hold automatically expires if the update is not started.
+    otaHoldActive_ = true;
+    otaHoldUntilMs_ = millis() + OTA_HOLD_TIMEOUT_MS;
+    appLog.info("OTA", "Update ready; external API remains paused for install");
+  }
+
   String out;
   out.reserve(300);
   out += F("{\"ok\":true,\"currentVersion\":"); appendQuoted(out, s.currentVersion);
@@ -551,18 +580,39 @@ void WebService::handleOtaCheck() {
 }
 
 void WebService::handleOtaUpdate() {
-  externalApiService.suspend();
-  delay(20);
+  // Always enter/refresh the exclusive OTA hold, even if the user waited long
+  // enough for a previous hold to expire.
+  startOtaHold();
+  delay(150);
+  yield();
+
+  // Refresh the manifest while the API is still suspended. This guarantees
+  // that the firmware connection follows immediately after a successful TLS
+  // manifest transaction, without an API request being started in between.
+  if (!otaService.check()) {
+    releaseOtaHold();
+    sendError(502, otaService.status().lastError);
+    return;
+  }
+  if (!otaService.status().updateAvailable) {
+    releaseOtaHold();
+    sendError(409, "No newer OTA version is available");
+    return;
+  }
+
+  delay(100);
   yield();
 
   if (!otaService.install()) {
-    externalApiService.resume();
+    releaseOtaHold();
     sendError(502, otaService.status().lastError);
     return;
   }
 
   // Keep the external API suspended after a successful flash. The device is
   // about to reboot, so starting another HTTP request would only waste heap.
+  otaHoldActive_ = false;
+  otaHoldUntilMs_ = 0;
   sendJson(200, F("{\"ok\":true,\"message\":\"Update completed; rebooting\"}"));
   scheduleRestart(2000UL);
 }

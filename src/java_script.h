@@ -39,7 +39,7 @@ const I18N = {
     "factory.confirm2":"Letzte Bestätigung: Das Gerät startet danach mit Werkseinstellungen neu.",
     "state.connected":"Verbunden","state.requesting":"Abfrage läuft","state.unavailable":"Nicht erreichbar","state.notConfigured":"Nicht konfiguriert","state.stale":"Daten veraltet",
     "state.current":"Aktuell","state.enabled":"Aktiv","state.disabled":"Deaktiviert","state.synced":"Synchronisiert","state.notSynced":"Nicht synchronisiert",
-    "state.ok":"OK","state.noData":"Keine Daten","state.clock":"Uhrzeit","state.updateAvailable":"Update verfügbar","state.upToDate":"Aktuell",
+    "state.ok":"OK","state.noData":"Keine Daten","state.noMeasurement":"Noch keine Messung","state.clock":"Uhrzeit","state.updateAvailable":"Update verfügbar","state.upToDate":"Aktuell",
     "state.restart":"Gespeichert. Neustart wird ausgeführt."
   },
   en: {
@@ -74,7 +74,7 @@ const I18N = {
     "factory.confirm2":"Final confirmation: the device will restart with factory settings.",
     "state.connected":"Connected","state.requesting":"Request in progress","state.unavailable":"Unavailable","state.notConfigured":"Not configured","state.stale":"Data stale",
     "state.current":"Current","state.enabled":"Enabled","state.disabled":"Disabled","state.synced":"Synchronized","state.notSynced":"Not synchronized",
-    "state.ok":"OK","state.noData":"No data","state.clock":"Clock","state.updateAvailable":"Update available","state.upToDate":"Up to date",
+    "state.ok":"OK","state.noData":"No data","state.noMeasurement":"No measurement yet","state.clock":"Clock","state.updateAvailable":"Update available","state.upToDate":"Up to date",
     "state.restart":"Saved. Restarting device."
   }
 };
@@ -130,6 +130,22 @@ function apiFetch(url,options={}){
 function fmtNumber(value,unit,decimals=1){
   if(typeof value!=="number" || !Number.isFinite(value)) return "--";
   return `${value.toLocaleString(lang==="de"?"de-DE":"en-US",{maximumFractionDigits:decimals})}${unit?` ${unit}`:""}`;
+}
+function fmtDateTime(value,timeZone){
+  if(typeof value!=="string" || !value.trim()) return t("state.noMeasurement");
+  // The external API may provide microseconds. Normalize to milliseconds for broad browser compatibility.
+  const normalized=value.trim().replace(/(\.\d{3})\d+(?=Z$|[+-]\d{2}:\d{2}$)/,"$1");
+  const date=new Date(normalized);
+  if(Number.isNaN(date.getTime())) return value;
+  const locale=lang==="de"?"de-DE":"en-GB";
+  const options={day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit",second:"2-digit",hour12:false};
+  if(typeof timeZone==="string" && timeZone.trim()) options.timeZone=timeZone.trim();
+  try{
+    return new Intl.DateTimeFormat(locale,options).format(date);
+  }catch(_){
+    delete options.timeZone;
+    return new Intl.DateTimeFormat(locale,options).format(date);
+  }
 }
 function fmtAge(seconds){
   if(typeof seconds!=="number" || seconds<0) return "--";
@@ -264,7 +280,7 @@ function renderState(){
   badge("apiBadge",!configured?t("state.notConfigured"):api.requestInProgress?t("state.requesting"):api.connected?t("state.connected"):t("state.unavailable"),!configured?"neutral":api.requestInProgress?"neutral":api.connected?"good":"bad");
   text("apiServer",configured?api.endpoint:"--");
   text("apiLastRequest",api.lastAttemptAgeSeconds==null?"--":fmtAge(api.lastAttemptAgeSeconds));
-  text("apiLastMeasurement",state.external.lastMeasurementAt||"--");
+  text("apiLastMeasurement",fmtDateTime(state.external.lastMeasurementAt,state.external.timezone));
   text("apiDataAge",api.dataAgeSeconds==null?"--":fmtAge(api.dataAgeSeconds));
   text("apiHttp",api.httpStatus||"--");
   text("apiError",api.lastError||"--");
