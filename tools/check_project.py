@@ -192,7 +192,7 @@ def test_architecture_guards() -> None:
     assert "snprintf(out.chars" not in display_format, "clock renderer must not use warning-prone snprintf formatting"
     assert "lastClockSecond_" in display, "clock rendering must track seconds independently from metric refresh"
     assert "displayUpdateMs" in display and "showClock" in display
-    assert "alternateClockVisible" in display_format and "alternateClockVisible" in display, "alternate mode must use independently configurable clock/API phases"
+    assert "alternateClockVisible" in display_format and "alternateDisplayShowsClock" in display, "alternate mode must use independently configurable clock/API phases"
     assert "cfg.apiValueDisplayMs" in display, "alternate mode must honor the configured API-value display duration"
     assert "degreeSymbolSegment" in display_format and "degreeSuffix" in display, "temperature must render a dedicated degree suffix"
     assert "buildRoundedTemperatureFrame" in display_format, "air temperature must be rounded to an integer"
@@ -200,6 +200,10 @@ def test_architecture_guards() -> None:
     assert "connectingSegments(segments)" in display, "Conn must use a deterministic segment frame"
     assert "showNumberDec(8888" not in display, "legacy 8888 startup self-test must be removed"
     assert 'timeService.getLocalTm(validTimeProbe)' in display, "display must gate normal rendering until local time is valid"
+    assert 'if (!selectedMetricAvailable)' in display and 'showClock = true;' in display and 'alternateDisplayShowsClock' in display, "alternate mode must stay on the clock until the selected API metric exists"
+    assert 'apiDataStaleForDisplay' in display, "physical display must apply age-based stale indication"
+    assert 'degreeSymbolSegment(staleWarning)' in display, "stale temperature must add the warning segment to the degree digit"
+    assert 'lastMetricStaleWarning_ != staleWarning' in display, "fresh/stale transitions must refresh the display immediately"
     main_cpp = (SRC / "main.cpp").read_text(encoding="utf-8")
     assert main_cpp.index("displayService.begin(settings)") < main_cpp.index("networkService.begin(settings)"), "Conn must appear before Wi-Fi/NTP boot waits"
     assert "ESP.getResetReason()" in main_cpp, "unexpected reboot diagnostics must record the ESP8266 reset reason"

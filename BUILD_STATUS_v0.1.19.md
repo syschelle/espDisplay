@@ -1,8 +1,8 @@
-# espDisplay v0.1.18 - Build / verification status
+# espDisplay v0.1.19 - Build / verification status
 
 ## Purpose
 
-v0.1.18 adds an independently configurable API-value display duration in milliseconds for alternating clock/API mode.
+v0.1.19 improves alternating display behavior when API data is initially unavailable and adds a physical stale-data indicator to the temperature degree digit.
 
 ## Verification performed in this environment
 
@@ -11,15 +11,14 @@ v0.1.18 adds an independently configurable API-value display duration in millise
 - Browser SHA-256 known-vector test (`abc`) - PASS
 - display format C++ host tests with `-Wall -Wextra -Werror -Wformat-truncation` - PASS
 - validation C++ host tests with `-Wall -Wextra -Werror` - PASS
-- `settings.cpp` host syntax compile with Arduino/EEPROM stubs and `-Wall -Wextra -Werror` - PASS
 - Static regression checks verify:
-  - web UI exposes `apiValueDisplayMs`
-  - allowed range is `100..200000 ms`
-  - alternating timing uses the configured millisecond API phase
-  - default API phase remains `1000 ms`
-  - EEPROM schema 5 stores the new 32-bit field
-  - schema 4 migration remains available
-  - legacy schema 1/2/3 migration paths remain available
+  - alternate mode remains on the clock until the selected API metric is available after boot
+  - the alternate cycle starts cleanly only after a usable API metric exists
+  - stale indication uses the greater of 30 seconds or two API polling intervals
+  - fresh/stale transitions force an immediate metric refresh
+  - the normal degree symbol remains `0x63`
+  - the stale degree symbol adds TM1637 segment D and becomes `0x6B`
+  - no EEPROM schema change is required
 
 ## PlatformIO
 

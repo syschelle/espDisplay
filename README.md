@@ -161,6 +161,8 @@ Unknown fields are ignored. Missing optional fields remain unavailable rather th
 - A failed or still-running request does **not** erase the last valid measurements.
 - The last-known-good measurements remain in RAM and continue to be available to the TM1637 and web interface.
 - Old values are explicitly marked stale; they are never presented as fresh data.
+- In alternating clock/API mode, the display stays on the clock until the selected API metric has been received successfully at least once after boot.
+- If last-known-good API data becomes older than the greater of 30 seconds or two polling intervals, the temperature degree digit adds its bottom segment as a stale-data underline. The underline disappears immediately after fresh API data arrives.
 - No overlapping API requests are started.
 - Failures never deliberately reboot the ESP8266.
 - Successful normal polls are not logged continuously; state transitions are logged instead.
@@ -204,7 +206,8 @@ The formatter deliberately fits values to four digits:
 - kWh values use a dynamic decimal representation such as `6.31`, `12.5`, or `123.4` where the display permits it.
 - Negative values preserve the minus sign where they can be represented.
 - External air temperature is rounded to the nearest whole degree and uses the final TM1637 digit as a seven-segment degree symbol, e.g. `23.6 °C -> 24°`.
-- Missing/invalid values show `----`.
+- Missing/invalid values show `----` in metric-only mode. In alternating mode, the clock remains visible instead of switching to an empty API phase until the selected metric exists.
+- For the rounded air-temperature display, stale last-known-good data keeps the numeric value but adds the bottom segment to the `°` digit as a visual warning. Fresh data removes that underline automatically.
 
 In alternating mode, the clock and API-value phases are configured independently. The clock duration remains in seconds, while the API-value duration is configured in milliseconds. For example, `clock = 10 s` and `API value = 500 ms` produces `clock 10 s -> metric 500 ms -> clock 10 s -> metric 500 ms`. The API-value duration defaults to 1000 ms so existing behavior is preserved after migration.
 

@@ -30,8 +30,18 @@ bool clockColonVisible(uint8_t second);
 bool alternateClockVisible(uint32_t elapsedMs, uint16_t clockSeconds,
                            uint32_t apiValueDisplayMs);
 
-// Raw TM1637 seven-segment approximation of the degree symbol.
-uint8_t degreeSymbolSegment();
+// Alternate mode must remain on the clock until the selected API value has
+// actually been received after boot. Once available, normal timing applies.
+bool alternateDisplayShowsClock(uint32_t elapsedMs, uint16_t clockSeconds,
+                                uint32_t apiValueDisplayMs, bool apiValueAvailable);
+
+// Raw TM1637 seven-segment approximation of the degree symbol. When staleWarning
+// is true, segment D (the lower horizontal segment) is added as a visible stale-data indicator.
+uint8_t degreeSymbolSegment(bool staleWarning = false);
+
+// Physical-display stale policy for last-known-good API data. The value becomes
+// stale after the greater of 30 seconds or two configured polling intervals.
+bool apiDataStaleForDisplay(uint32_t ageMs, uint16_t pollSeconds);
 
 // TM1637 segment pattern for the boot/wait state "Conn".
 void connectingSegments(uint8_t out[4]);

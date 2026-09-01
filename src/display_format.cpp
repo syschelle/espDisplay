@@ -180,9 +180,25 @@ bool alternateClockVisible(uint32_t elapsedMs, uint16_t clockSeconds,
   return (elapsedMs % cycleMs) < clockMs;
 }
 
-uint8_t degreeSymbolSegment() {
-  // Small raised circle: segments A + B + F + G.
-  return 0x63;
+bool alternateDisplayShowsClock(uint32_t elapsedMs, uint16_t clockSeconds,
+                                uint32_t apiValueDisplayMs, bool apiValueAvailable) {
+  if (!apiValueAvailable) return true;
+  return alternateClockVisible(elapsedMs, clockSeconds, apiValueDisplayMs);
+}
+
+uint8_t degreeSymbolSegment(bool staleWarning) {
+  // Small raised circle: segments A + B + F + G. When cached API data has
+  // become genuinely stale, also light segment D as an underline in the same
+  // physical digit. This keeps the numeric temperature itself unchanged.
+  static constexpr uint8_t kDegree = 0x63;
+  static constexpr uint8_t kBottomSegment = 0x08;
+  return staleWarning ? static_cast<uint8_t>(kDegree | kBottomSegment) : kDegree;
+}
+
+bool apiDataStaleForDisplay(uint32_t ageMs, uint16_t pollSeconds) {
+  const uint32_t calculatedStaleMs = static_cast<uint32_t>(pollSeconds) * 2000UL;
+  const uint32_t staleAfterMs = calculatedStaleMs > 30000UL ? calculatedStaleMs : 30000UL;
+  return ageMs > staleAfterMs;
 }
 
 void connectingSegments(uint8_t out[4]) {

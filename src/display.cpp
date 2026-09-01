@@ -35,6 +35,8 @@ void DisplayService::begin(const AppSettings& cfg) {
   lastClockPollMs_ = 0;
   lastClockSecond_ = -1;
   lastRenderedWasClock_ = false;
+  lastRenderedWasMetric_ = false;
+  lastMetricStaleWarning_ = false;
   alternateCycleStartedMs_ = 0;
   alternateCycleActive_ = false;
 }
@@ -58,6 +60,8 @@ void DisplayService::applySettings(const AppSettings& cfg) {
   lastClockSecond_ = -1;
   lastRenderedWasClock_ = false;
   lastRenderedWasConnecting_ = false;
+  lastRenderedWasMetric_ = false;
+  lastMetricStaleWarning_ = false;
   alternateCycleStartedMs_ = 0;
   alternateCycleActive_ = false;
 }
@@ -89,19 +93,32 @@ void DisplayService::tick(const AppSettings& cfg, const ExternalValues& values) 
   lastRenderedWasConnecting_ = false;
 
   const uint32_t nowMs = millis();
+  const NumericValue* selectedValue = metricValue(cfg.selectedMetric, values);
+  const bool selectedMetricAvailable = values.valid && selectedValue && selectedValue->valid &&
+                                       isfinite(selectedValue->value);
+
   bool showClock = cfg.displayMode == DisplayMode::Clock;
   if (cfg.displayMode == DisplayMode::Alternate) {
-    // Start every alternate cycle with a complete clock phase. The configured
-    // clock interval controls how long the clock stays visible. The API
-    // value has its own independently configurable duration in ms.
-    if (!alternateCycleActive_) {
-      alternateCycleStartedMs_ = nowMs;
-      alternateCycleActive_ = true;
+    // After a reboot there is intentionally no persisted measurement cache.
+    // Until the selected metric has been received successfully at least once,
+    // keep showing the clock and do not enter an empty API-value phase.
+    if (!selectedMetricAvailable) {
+      showClock = true;
+      alternateCycleActive_ = false;
+    } else {
+      // Start every alternate cycle with a complete clock phase. The configured
+      // clock interval controls how long the clock stays visible. The API
+      // value has its own independently configurable duration in ms.
+      if (!alternateCycleActive_) {
+        alternateCycleStartedMs_ = nowMs;
+        alternateCycleActive_ = true;
+      }
+      showClock = alternateDisplayShowsClock(
+          static_cast<uint32_t>(nowMs - alternateCycleStartedMs_),
+          cfg.alternateSeconds,
+          cfg.apiValueDisplayMs,
+          selectedMetricAvailable);
     }
-    showClock = alternateClockVisible(
-        static_cast<uint32_t>(nowMs - alternateCycleStartedMs_),
-        cfg.alternateSeconds,
-        cfg.apiValueDisplayMs);
   } else {
     alternateCycleActive_ = false;
   }
@@ -135,6 +152,7 @@ void DisplayService::tick(const AppSettings& cfg, const ExternalValues& values) 
     renderClock(now);
     lastClockSecond_ = static_cast<int8_t>(now.tm_sec);
     lastRenderedWasClock_ = true;
+    lastRenderedWasMetric_ = false;
     lastUpdateMs_ = nowMs;
     return;
   }
@@ -147,12 +165,19 @@ void DisplayService::tick(const AppSettings& cfg, const ExternalValues& values) 
   lastClockSecond_ = -1;
   lastClockPollMs_ = 0;
 
-  if (lastUpdateMs_ != 0 &&
+  const bool staleWarning = values.valid && values.lastSuccessMs != 0 &&
+                            apiDataStaleForDisplay(
+                                static_cast<uint32_t>(nowMs - values.lastSuccessMs),
+                                cfg.apiPollSeconds);
+  const bool staleStateChanged = lastRenderedWasMetric_ &&
+                                 lastMetricStaleWarning_ != staleWarning;
+
+  if (!staleStateChanged && lastUpdateMs_ != 0 &&
       static_cast<uint32_t>(millis() - lastUpdateMs_) < cfg.displayUpdateMs) {
     return;
   }
   lastUpdateMs_ = millis();
-  renderMetric(cfg.selectedMetric, values);
+  renderMetric(cfg.selectedMetric, values, staleWarning);
 }
 
 const NumericValue* DisplayService::metricValue(
@@ -179,7 +204,7 @@ const NumericValue* DisplayService::metricValue(
   }
 }
 
-void DisplayService::renderMetric(MetricId metric, const ExternalValues& values) {
+void DisplayService::renderMetric(MetricId metric, const ExternalValues& values, bool staleWarning) {
   const NumericValue* value = metricValue(metric, values);
   if (!value) {
     renderError();
@@ -192,8 +217,10 @@ void DisplayService::renderMetric(MetricId metric, const ExternalValues& values)
     return;
   }
 
-  renderFrame(frame);
+  renderFrame(frame, staleWarning);
   rememberFrame(frame);
+  lastRenderedWasMetric_ = true;
+  lastMetricStaleWarning_ = staleWarning;
 }
 
 void DisplayService::renderClock(const struct tm& now) {
@@ -227,7 +254,7 @@ void DisplayService::renderClock(const struct tm& now) {
   lastScaledThousands_ = false;
 }
 
-void DisplayService::renderFrame(const DisplayFrame& frame) {
+void DisplayService::renderFrame(const DisplayFrame& frame, bool staleWarning) {
   if (!display_) return;
 
   uint8_t segments[4] = {0, 0, 0, 0};
@@ -254,7 +281,7 @@ void DisplayService::renderFrame(const DisplayFrame& frame) {
   }
 
   if (frame.degreeSuffix && len < 4U && (offset + len) < 4U) {
-    segments[offset + len] = degreeSymbolSegment();
+    segments[offset + len] = degreeSymbolSegment(staleWarning);
   }
 
   display_->setSegments(segments);
@@ -277,6 +304,7 @@ void DisplayService::renderError() {
   display_->setSegments(dash);
   copyText(lastRenderedText_, "----");
   lastScaledThousands_ = false;
+  lastRenderedWasMetric_ = false;
 }
 
 void DisplayService::rememberFrame(const DisplayFrame& frame) {

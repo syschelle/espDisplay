@@ -62,7 +62,26 @@ int main() {
   assert(!alternateClockVisible(11249, 10, 1250));
   assert(alternateClockVisible(11250, 10, 1250));
 
+  // After reboot, alternate mode must not enter an empty API phase before the
+  // selected metric has been received successfully at least once.
+  assert(alternateDisplayShowsClock(10000, 10, 500, false));
+  assert(alternateDisplayShowsClock(10499, 10, 500, false));
+  assert(alternateDisplayShowsClock(10000, 10, 500, true) == false);
+  assert(alternateDisplayShowsClock(10500, 10, 500, true));
+
   assert(degreeSymbolSegment() == 0x63);
+  assert(degreeSymbolSegment(false) == 0x63);
+  assert(degreeSymbolSegment(true) == 0x6B);  // degree symbol + bottom underline
+
+  // Last-known-good data is only marked stale on the physical display after
+  // the greater of 30 seconds or two polling intervals.
+  assert(!apiDataStaleForDisplay(30000, 10));
+  assert(apiDataStaleForDisplay(30001, 10));
+  assert(!apiDataStaleForDisplay(39999, 20));
+  assert(!apiDataStaleForDisplay(40000, 20));
+  assert(apiDataStaleForDisplay(40001, 20));
+  assert(!apiDataStaleForDisplay(600000, 300));
+  assert(apiDataStaleForDisplay(600001, 300));
 
   // Clock colon: visible on even seconds, hidden on odd seconds.
   assert(clockColonVisible(0));
