@@ -1,6 +1,6 @@
 {
-  "version": "v0.1.15",
+  "version": "v0.1.16",
   "firmware": "firmware.bin",
-  "size": 535328,
-  "sha256": "46be082600ef0316ca46ed5c2efae5a1c0e058ba21431e75bbb0677bba40863a"
+  "size": 535664,
+  "sha256": "f632ca0ab91c11133053ed2ee53ea991f60d63fee0f5258099fc9b28aeb32204"
 }
