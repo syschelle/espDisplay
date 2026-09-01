@@ -2,6 +2,7 @@
 
 #include <ArduinoJson.h>
 #include <ESP8266WiFi.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "config.h"
@@ -96,27 +97,10 @@ void WebService::begin() {
 void WebService::tick() {
   server_.handleClient();
 
-  if (otaHoldActive_ && static_cast<int32_t>(millis() - otaHoldUntilMs_) >= 0) {
-    appLog.info("OTA", "OTA hold expired; external API polling resumed");
-    releaseOtaHold();
-  }
-
   if (restartScheduled_ && static_cast<int32_t>(millis() - restartAtMs_) >= 0) {
     delay(50);
     ESP.restart();
   }
-}
-
-void WebService::startOtaHold() {
-  externalApiService.suspend();
-  otaHoldActive_ = true;
-  otaHoldUntilMs_ = millis() + OTA_HOLD_TIMEOUT_MS;
-}
-
-void WebService::releaseOtaHold() {
-  otaHoldActive_ = false;
-  otaHoldUntilMs_ = 0;
-  externalApiService.resume();
 }
 
 void WebService::scheduleRestart(uint32_t delayMs) {
@@ -142,8 +126,12 @@ void WebService::registerRoutes() {
   server_.on("/api/settings/display", HTTP_POST, [this]() { handleDisplaySettingsPost(); });
   server_.on("/api/settings/system", HTTP_POST, [this]() { handleSystemSettingsPost(); });
   server_.on("/api/log/clear", HTTP_POST, [this]() { handleLogClearPost(); });
-  server_.on("/api/ota/check", HTTP_GET, [this]() { handleOtaCheck(); });
-  server_.on("/api/ota/update", HTTP_POST, [this]() { handleOtaUpdate(); });
+  server_.on("/api/ota/session", HTTP_POST, [this]() { handleOtaSession(); });
+  server_.on(
+      "/api/ota/upload",
+      HTTP_POST,
+      [this]() { handleOtaUploadComplete(); },
+      [this]() { handleOtaUploadChunk(); });
   server_.on("/api/factory-reset", HTTP_POST, [this]() { handleFactoryReset(); });
 
   server_.onNotFound([this]() { sendError(404, "Not found"); });
@@ -231,6 +219,7 @@ void WebService::handleSettingsGet() {
   out += F(",\"mode\":"); appendQuoted(out, SettingsManager::modeToString(settings.displayMode));
   out += F(",\"updateMs\":"); out += String(settings.displayUpdateMs);
   out += F(",\"alternateSeconds\":"); out += String(settings.alternateSeconds);
+  out += F(",\"apiValueDisplayMs\":"); out += String(settings.apiValueDisplayMs);
   out += F("}}");
   sendJson(200, out);
 }
@@ -288,6 +277,7 @@ void WebService::handleStateGet() {
   out += F(",\"mode\":"); appendQuoted(out, SettingsManager::modeToString(settings.displayMode));
   out += F(",\"updateMs\":"); out += String(settings.displayUpdateMs);
   out += F(",\"alternateSeconds\":"); out += String(settings.alternateSeconds);
+  out += F(",\"apiValueDisplayMs\":"); out += String(settings.apiValueDisplayMs);
   out += F(",\"rendered\":"); appendQuoted(out, displayService.lastRenderedText());
   out += F(",\"scaledThousands\":"); out += displayService.lastScaledThousands() ? F("true") : F("false"); out += '}';
 
@@ -385,6 +375,9 @@ void WebService::handleDisplaySettingsPost() {
   const int alternateSeconds = root["alternateSeconds"].is<int>()
                                    ? root["alternateSeconds"].as<int>()
                                    : settings.alternateSeconds;
+  const uint32_t apiValueDisplayMs = root["apiValueDisplayMs"].is<uint32_t>()
+                                         ? root["apiValueDisplayMs"].as<uint32_t>()
+                                         : settings.apiValueDisplayMs;
 
   if (brightness < 0 || brightness > 7) {
     sendError(400, "Brightness must be between 0 and 7");
@@ -406,6 +399,11 @@ void WebService::handleDisplaySettingsPost() {
   }
   if (alternateSeconds < MIN_ALTERNATE_SECONDS || alternateSeconds > MAX_ALTERNATE_SECONDS) {
     sendError(400, "Display alternate interval is outside the supported range");
+    return;
+  }
+  if (apiValueDisplayMs < MIN_API_VALUE_DISPLAY_MS ||
+      apiValueDisplayMs > MAX_API_VALUE_DISPLAY_MS) {
+    sendError(400, "API value display duration is outside the supported range");
     return;
   }
 
@@ -432,6 +430,7 @@ void WebService::handleDisplaySettingsPost() {
   next.displayMode = mode;
   next.displayUpdateMs = updateMs;
   next.alternateSeconds = static_cast<uint16_t>(alternateSeconds);
+  next.apiValueDisplayMs = apiValueDisplayMs;
 
   if (!settingsManager.save(next)) {
     sendError(500, settingsManager.lastError());
@@ -542,79 +541,129 @@ void WebService::handleLogClearPost() {
   sendJson(200, F("{\"ok\":true}"));
 }
 
-void WebService::handleOtaCheck() {
-  // OTA gets exclusive use of the ESP8266 network/heap while an update is
-  // pending. In v0.1.13 the API poller was resumed immediately after this
-  // check; a slow response could then fragment/consume heap before the second
-  // BearSSL connection used for firmware.bin.
-  startOtaHold();
-  delay(150);
-  yield();
-
-  const bool otaOk = otaService.check();
-  if (!otaOk) {
-    releaseOtaHold();
-    sendError(502, otaService.status().lastError);
-    return;
-  }
-
-  const OtaService::Status& s = otaService.status();
-  if (!s.updateAvailable) {
-    releaseOtaHold();
-  } else {
-    // Keep the API suspended while the user moves from "check" to "install".
-    // The hold automatically expires if the update is not started.
-    otaHoldActive_ = true;
-    otaHoldUntilMs_ = millis() + OTA_HOLD_TIMEOUT_MS;
-    appLog.info("OTA", "Update ready; external API remains paused for install");
-  }
+void WebService::handleOtaSession() {
+  const uint32_t a = ESP.random();
+  const uint32_t b = ESP.random();
+  snprintf(
+      otaUploadToken_,
+      sizeof(otaUploadToken_),
+      "%08lx%08lx",
+      static_cast<unsigned long>(a),
+      static_cast<unsigned long>(b));
+  otaUploadTokenExpiresMs_ = millis() + 60000UL;
 
   String out;
-  out.reserve(300);
-  out += F("{\"ok\":true,\"currentVersion\":"); appendQuoted(out, s.currentVersion);
-  out += F(",\"latestVersion\":"); appendQuoted(out, s.latestVersion);
-  out += F(",\"updateAvailable\":"); out += s.updateAvailable ? F("true") : F("false");
-  out += F(",\"firmwareSize\":"); out += String(s.firmwareSize);
-  out += '}';
+  out.reserve(96);
+  out += F("{\"ok\":true,\"token\":");
+  appendQuoted(out, otaUploadToken_);
+  out += F(",\"expiresSeconds\":60}");
   sendJson(200, out);
 }
 
-void WebService::handleOtaUpdate() {
-  // Always enter/refresh the exclusive OTA hold, even if the user waited long
-  // enough for a previous hold to expire.
-  startOtaHold();
-  delay(150);
-  yield();
+void WebService::handleOtaUploadChunk() {
+  HTTPUpload& upload = server_.upload();
 
-  // Refresh the manifest while the API is still suspended. This guarantees
-  // that the firmware connection follows immediately after a successful TLS
-  // manifest transaction, without an API request being started in between.
-  if (!otaService.check()) {
-    releaseOtaHold();
-    sendError(502, otaService.status().lastError);
+  if (upload.status == UPLOAD_FILE_START) {
+    otaUploadRequestSeen_ = true;
+    otaUploadFailed_ = false;
+    otaUploadCompleted_ = false;
+
+    if (upload.name != "firmware" || upload.filename != "firmware.bin") {
+      otaUploadFailed_ = true;
+      otaService.abortUpload("Unexpected OTA upload field or filename");
+      return;
+    }
+
+    const String token = server_.arg("token");
+    const bool tokenFresh = otaUploadToken_[0] != '\0' &&
+                            static_cast<int32_t>(otaUploadTokenExpiresMs_ - millis()) > 0;
+    if (!tokenFresh || token != otaUploadToken_) {
+      otaUploadFailed_ = true;
+      otaUploadToken_[0] = '\0';
+      otaUploadTokenExpiresMs_ = 0;
+      otaService.abortUpload("OTA upload session is invalid or expired");
+      return;
+    }
+    // One-time session: consume it before flash initialization.
+    otaUploadToken_[0] = '\0';
+    otaUploadTokenExpiresMs_ = 0;
+
+    const String targetVersion = server_.arg("version");
+    const String expectedSizeText = server_.arg("size");
+    char* end = nullptr;
+    const unsigned long parsedSize = strtoul(expectedSizeText.c_str(), &end, 10);
+    if (targetVersion.length() == 0 || expectedSizeText.length() == 0 ||
+        end == expectedSizeText.c_str() || *end != '\0' || parsedSize == 0) {
+      otaUploadFailed_ = true;
+      otaService.abortUpload("Invalid browser OTA metadata");
+      return;
+    }
+
+    // No external TCP/API traffic is allowed while flash is being written.
+    // GitHub HTTPS is handled by the browser, so the ESP8266 needs only enough
+    // RAM for the local upload and the Update buffer.
+    externalApiService.suspend();
+    delay(25);
+    yield();
+
+    if (!otaService.beginUpload(targetVersion.c_str(), static_cast<uint32_t>(parsedSize))) {
+      otaUploadFailed_ = true;
+      return;
+    }
     return;
   }
-  if (!otaService.status().updateAvailable) {
-    releaseOtaHold();
-    sendError(409, "No newer OTA version is available");
+
+  if (upload.status == UPLOAD_FILE_WRITE) {
+    if (otaUploadFailed_) return;
+    if (!otaService.writeChunk(upload.buf, upload.currentSize)) {
+      otaUploadFailed_ = true;
+    }
     return;
   }
 
-  delay(100);
-  yield();
-
-  if (!otaService.install()) {
-    releaseOtaHold();
-    sendError(502, otaService.status().lastError);
+  if (upload.status == UPLOAD_FILE_END) {
+    if (!otaUploadFailed_) {
+      otaUploadCompleted_ = otaService.finishUpload(static_cast<uint32_t>(upload.totalSize));
+      otaUploadFailed_ = !otaUploadCompleted_;
+    }
     return;
   }
 
-  // Keep the external API suspended after a successful flash. The device is
-  // about to reboot, so starting another HTTP request would only waste heap.
-  otaHoldActive_ = false;
-  otaHoldUntilMs_ = 0;
+  if (upload.status == UPLOAD_FILE_ABORTED) {
+    otaUploadFailed_ = true;
+    otaUploadCompleted_ = false;
+    otaUploadToken_[0] = '\0';
+    otaUploadTokenExpiresMs_ = 0;
+    otaService.abortUpload("Browser OTA upload was aborted");
+    externalApiService.resume();
+  }
+}
+
+void WebService::handleOtaUploadComplete() {
+  if (!otaUploadRequestSeen_) {
+    externalApiService.resume();
+    sendError(400, "No OTA firmware file was uploaded");
+    return;
+  }
+
+  otaUploadRequestSeen_ = false;
+
+  if (otaUploadFailed_ || !otaUploadCompleted_) {
+    otaUploadFailed_ = false;
+    otaUploadCompleted_ = false;
+    externalApiService.resume();
+    sendError(500, otaService.status().lastError[0]
+                       ? otaService.status().lastError
+                       : "OTA upload failed");
+    return;
+  }
+
+  otaUploadFailed_ = false;
+  otaUploadCompleted_ = false;
+  // Do not resume the external API after a successful flash. The ESP8266 is
+  // about to reboot and starting another socket would only waste time/RAM.
   sendJson(200, F("{\"ok\":true,\"message\":\"Update completed; rebooting\"}"));
-  scheduleRestart(2000UL);
+  scheduleRestart(1800UL);
 }
 
 void WebService::handleFactoryReset() {

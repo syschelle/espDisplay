@@ -16,10 +16,11 @@ class WebService {
   ESP8266WebServer server_;
   bool restartScheduled_ = false;
   uint32_t restartAtMs_ = 0;
-  bool otaHoldActive_ = false;
-  uint32_t otaHoldUntilMs_ = 0;
-
-  static constexpr uint32_t OTA_HOLD_TIMEOUT_MS = 300000UL;
+  bool otaUploadRequestSeen_ = false;
+  bool otaUploadFailed_ = false;
+  bool otaUploadCompleted_ = false;
+  char otaUploadToken_[17] = "";
+  uint32_t otaUploadTokenExpiresMs_ = 0;
 
   void registerRoutes();
   void sendJson(int status, const String& json);
@@ -33,11 +34,10 @@ class WebService {
   void handleDisplaySettingsPost();
   void handleSystemSettingsPost();
   void handleLogClearPost();
-  void handleOtaCheck();
-  void handleOtaUpdate();
+  void handleOtaSession();
+  void handleOtaUploadComplete();
+  void handleOtaUploadChunk();
   void handleFactoryReset();
-  void startOtaHold();
-  void releaseOtaHold();
 };
 
 extern WebService webService;

@@ -15,8 +15,11 @@ void setup() {
   delay(50);
 
   appLog.begin();
-  char bootMessage[64];
+  char bootMessage[96];
   snprintf(bootMessage, sizeof(bootMessage), "Firmware %s", FW_VERSION);
+  appLog.info("BOOT", bootMessage);
+  const String resetReason = ESP.getResetReason();
+  snprintf(bootMessage, sizeof(bootMessage), "Reset reason: %.72s", resetReason.c_str());
   appLog.info("BOOT", bootMessage);
 
   settingsManager.begin();

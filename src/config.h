@@ -68,6 +68,9 @@ static constexpr uint32_t MAX_DISPLAY_UPDATE_MS = 200000UL;
 static constexpr uint16_t DEFAULT_ALTERNATE_SECONDS = 10;
 static constexpr uint16_t MIN_ALTERNATE_SECONDS = 2;
 static constexpr uint16_t MAX_ALTERNATE_SECONDS = 120;
+static constexpr uint32_t DEFAULT_API_VALUE_DISPLAY_MS = 1000UL;
+static constexpr uint32_t MIN_API_VALUE_DISPLAY_MS = 100UL;
+static constexpr uint32_t MAX_API_VALUE_DISPLAY_MS = 200000UL;
 
 // On common four-digit TM1637 clock modules, segment DP on digit 2 drives
 // the center colon when raw segments are written with setSegments().
@@ -93,7 +96,8 @@ static constexpr uint32_t EEPROM_SETTINGS_MAGIC = 0x45443832UL;  // "ED82"
 static constexpr uint16_t LEGACY_SETTINGS_SCHEMA_VERSION = 1;
 static constexpr uint16_t DISPLAY_GPIO_SETTINGS_SCHEMA_VERSION = 2;
 static constexpr uint16_t PREVIOUS_SETTINGS_SCHEMA_VERSION = 3;
-static constexpr uint16_t SETTINGS_SCHEMA_VERSION = 4;
+static constexpr uint16_t DISPLAY_UPDATE_SETTINGS_SCHEMA_VERSION = 4;
+static constexpr uint16_t SETTINGS_SCHEMA_VERSION = 5;
 
 static constexpr size_t LOG_LINE_COUNT = 30;
 static constexpr size_t LOG_LINE_LENGTH = 128;

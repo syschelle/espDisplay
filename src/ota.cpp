@@ -1,15 +1,10 @@
 #include "ota.h"
 
-#include <ArduinoJson.h>
-#include <ESP8266HTTPClient.h>
 #include <ESP8266WiFi.h>
-#include <WiFiClientSecureBearSSL.h>
 #include <Updater.h>
-#include <ctype.h>
 #include <stdlib.h>
 #include <string.h>
 
-#include "config.h"
 #include "logging.h"
 #include "text_utils.h"
 #include "version.h"
@@ -18,30 +13,8 @@ OtaService otaService;
 
 namespace {
 
-constexpr size_t kMaxManifestBytes = 2048;
-
-void buildRawUrl(char* out, size_t outSize, const char* fileName) {
-  if (!out || outSize == 0) return;
-  snprintf(
-      out,
-      outSize,
-      "https://raw.githubusercontent.com/%s/%s/%s/%s",
-      OTA_GITHUB_OWNER,
-      OTA_GITHUB_REPO,
-      OTA_BRANCH,
-      fileName);
-}
-
-bool isSha256Hex(const char* value) {
-  if (!value || strlen(value) != 64) return false;
-  for (size_t i = 0; i < 64; ++i) {
-    if (!isxdigit(static_cast<unsigned char>(value[i]))) return false;
-  }
-  return true;
-}
-
 void logHeapState(const char* phase) {
-  char message[112];
+  char message[120];
   snprintf(
       message,
       sizeof(message),
@@ -60,308 +33,159 @@ void OtaService::begin() {
   copyText(status_.currentVersion, FW_VERSION);
 }
 
+void OtaService::resetUpdaterIfRunning() {
+  if (Update.isRunning()) {
+    // end(false) intentionally fails an incomplete update and resets the
+    // updater's internal buffer/state without scheduling a reboot.
+    (void)Update.end(false);
+  }
+}
+
 void OtaService::fail(const char* message) {
   status_.ok = false;
+  status_.inProgress = false;
+  status_.completed = false;
   copyText(status_.lastError, message ? message : "Unknown OTA error");
   appLog.warn("OTA", status_.lastError);
 }
 
-bool OtaService::check() {
-  status_.checked = true;
-  status_.ok = false;
-  status_.updateAvailable = false;
-  status_.latestVersion[0] = '\0';
-  status_.firmwareUrl[0] = '\0';
-  status_.firmwareSize = 0;
-  status_.lastError[0] = '\0';
+bool OtaService::beginUpload(const char* targetVersion, uint32_t expectedSize) {
+  resetUpdaterIfRunning();
+  status_ = Status();
   copyText(status_.currentVersion, FW_VERSION);
 
-  if (WiFi.status() != WL_CONNECTED) {
-    fail("WLAN is not connected");
+  int targetMajor = 0, targetMinor = 0, targetPatch = 0;
+  if (!parseSemver(targetVersion, targetMajor, targetMinor, targetPatch)) {
+    fail("OTA target version is not a semantic version");
     return false;
   }
-
-  logHeapState("Manifest check starting");
-
-  char manifestBase[192];
-  buildRawUrl(manifestBase, sizeof(manifestBase), OTA_MANIFEST_NAME);
-
-  // A short cache-buster avoids receiving an older manifest from an
-  // intermediate cache immediately after a new tagged release was published.
-  String manifestUrl(manifestBase);
-  manifestUrl += F("?cb=");
-  manifestUrl += String(millis());
-
-  BearSSL::WiFiClientSecure client;
-  client.setInsecure();
-  client.setTimeout(15);
-
-  HTTPClient http;
-  http.setTimeout(15000);
-  http.setReuse(false);
-  http.setFollowRedirects(HTTPC_DISABLE_FOLLOW_REDIRECTS);
-  http.useHTTP10(true);
-  http.setUserAgent(String(PROJECT_NAME) + "/" + FW_VERSION);
-
-  if (!http.begin(client, manifestUrl)) {
-    fail("OTA manifest request initialization failed");
+  if (compareSemver(FW_VERSION, targetVersion) >= 0) {
+    fail("OTA target version is not newer than installed firmware");
     return false;
   }
-  http.addHeader("Accept", "application/json");
-  http.addHeader("Cache-Control", "no-cache");
-
-  const int code = http.GET();
-  if (code != HTTP_CODE_OK) {
-    char message[96];
-    if (code < 0) {
-      const String detail = HTTPClient::errorToString(code);
-      snprintf(
-          message,
-          sizeof(message),
-          "Manifest TLS failed %d: %.24s (free %lu/max %lu)",
-          code,
-          detail.c_str(),
-          static_cast<unsigned long>(ESP.getFreeHeap()),
-          static_cast<unsigned long>(ESP.getMaxFreeBlockSize()));
-    } else {
-      snprintf(message, sizeof(message), "OTA manifest returned HTTP %d", code);
-    }
-    http.end();
-    fail(message);
+  if (expectedSize == 0) {
+    fail("OTA firmware size is invalid");
     return false;
   }
-
-  const int responseSize = http.getSize();
-  if (responseSize > static_cast<int>(kMaxManifestBytes)) {
-    http.end();
-    fail("OTA manifest is unexpectedly large");
-    return false;
-  }
-
-  JsonDocument filter;
-  filter["version"] = true;
-  filter["firmware"] = true;
-  filter["size"] = true;
-  filter["sha256"] = true;
-
-  JsonDocument doc;
-  const DeserializationError err = deserializeJson(
-      doc,
-      http.getStream(),
-      DeserializationOption::Filter(filter),
-      DeserializationOption::NestingLimit(2));
-  http.end();
-
-  if (err) {
-    fail("OTA manifest is invalid JSON");
-    return false;
-  }
-
-  const char* latest = doc["version"] | "";
-  const char* firmwareName = doc["firmware"] | "";
-  const char* sha256 = doc["sha256"] | "";
-  const uint32_t firmwareSize = doc["size"] | 0U;
-
-  int latestMajor = 0, latestMinor = 0, latestPatch = 0;
-  if (!parseSemver(latest, latestMajor, latestMinor, latestPatch)) {
-    fail("OTA manifest version is not a semantic version");
-    return false;
-  }
-  if (strcmp(firmwareName, OTA_ASSET_NAME) != 0) {
-    fail("OTA manifest firmware name is invalid");
-    return false;
-  }
-  if (firmwareSize == 0) {
-    fail("OTA manifest firmware size is invalid");
-    return false;
-  }
-  if (!isSha256Hex(sha256)) {
-    fail("OTA manifest SHA-256 is invalid");
-    return false;
-  }
-
-  copyText(status_.latestVersion, latest);
-  status_.firmwareSize = firmwareSize;
-
-  char firmwareBase[192];
-  buildRawUrl(firmwareBase, sizeof(firmwareBase), OTA_ASSET_NAME);
-  String firmwareUrl(firmwareBase);
-  firmwareUrl += F("?v=");
-  firmwareUrl += status_.latestVersion;
-  if (firmwareUrl.length() >= sizeof(status_.firmwareUrl)) {
-    fail("OTA firmware URL is unexpectedly long");
-    return false;
-  }
-  copyText(status_.firmwareUrl, firmwareUrl.c_str());
-
-  if (!isAllowedFirmwareUrl(status_.firmwareUrl)) {
-    fail("Firmware URL is outside the configured OTA channel");
-    return false;
-  }
-
-  if (status_.firmwareSize > static_cast<uint32_t>(ESP.getFreeSketchSpace())) {
+  if (expectedSize > static_cast<uint32_t>(ESP.getFreeSketchSpace())) {
     fail("Firmware image does not fit the available OTA flash space");
     return false;
   }
 
-  status_.updateAvailable = compareSemver(FW_VERSION, status_.latestVersion) < 0;
-  status_.ok = true;
+  copyText(status_.targetVersion, targetVersion);
+  status_.expectedSize = expectedSize;
+  status_.writtenSize = 0;
   status_.lastError[0] = '\0';
 
-  if (status_.updateAvailable) {
-    char message[80];
-    snprintf(message, sizeof(message), "Update available: %s", status_.latestVersion);
-    appLog.info("OTA", message);
-  } else {
-    appLog.info("OTA", "Firmware is up to date");
+  logHeapState("Browser OTA upload starting");
+  Update.clearError();
+  if (!Update.begin(expectedSize, U_FLASH)) {
+    char message[96];
+    snprintf(
+        message,
+        sizeof(message),
+        "Flash initialization failed: %u %.48s",
+        static_cast<unsigned>(Update.getError()),
+        Update.getErrorString().c_str());
+    fail(message);
+    return false;
   }
 
+  status_.inProgress = true;
+  status_.ok = true;
+  appLog.info("OTA", "Browser firmware upload accepted");
   return true;
 }
 
-bool OtaService::install() {
-  if (WiFi.status() != WL_CONNECTED) {
-    fail("WLAN is not connected");
+bool OtaService::writeChunk(uint8_t* data, size_t length) {
+  if (!status_.inProgress || !Update.isRunning()) {
+    fail("OTA upload is not initialized");
+    return false;
+  }
+  if (!data || length == 0) return true;
+
+  if (status_.writtenSize == 0 && data[0] != 0xE9) {
+    resetUpdaterIfRunning();
+    fail("Uploaded file is not a valid ESP8266 firmware image");
     return false;
   }
 
-  if (!status_.checked || !status_.ok || !status_.updateAvailable ||
-      status_.firmwareUrl[0] == '\0' || status_.firmwareSize == 0) {
-    fail("No checked OTA update is ready to install");
+  if (status_.writtenSize + length > status_.expectedSize) {
+    resetUpdaterIfRunning();
+    fail("OTA upload exceeds expected firmware size");
     return false;
   }
 
-  if (!isAllowedFirmwareUrl(status_.firmwareUrl)) {
-    fail("Firmware URL is outside the configured OTA channel");
-    return false;
-  }
-
-  if (status_.firmwareSize > static_cast<uint32_t>(ESP.getFreeSketchSpace())) {
-    fail("Firmware image does not fit the available OTA flash space");
-    return false;
-  }
-
-  logHeapState("Firmware update starting");
-
-  BearSSL::WiFiClientSecure client;
-  client.setInsecure();
-  client.setTimeout(30);
-
-  HTTPClient http;
-  http.setReuse(false);
-  http.setTimeout(30000);
-  http.setFollowRedirects(HTTPC_DISABLE_FOLLOW_REDIRECTS);
-  http.useHTTP10(true);
-  http.setUserAgent(String(PROJECT_NAME) + "/" + FW_VERSION);
-
-  if (!http.begin(client, status_.firmwareUrl)) {
-    fail("OTA firmware request initialization failed");
-    return false;
-  }
-  http.addHeader("Accept", "application/octet-stream");
-  http.addHeader("Cache-Control", "no-cache");
-
-  const int code = http.GET();
-  if (code != HTTP_CODE_OK) {
-    char message[96];
-    if (code < 0) {
-      const String detail = HTTPClient::errorToString(code);
-      snprintf(
-          message,
-          sizeof(message),
-          "Firmware TLS failed %d: %.24s (free %lu/max %lu)",
-          code,
-          detail.c_str(),
-          static_cast<unsigned long>(ESP.getFreeHeap()),
-          static_cast<unsigned long>(ESP.getMaxFreeBlockSize()));
-    } else {
-      snprintf(message, sizeof(message), "OTA firmware returned HTTP %d", code);
-    }
-    http.end();
-    fail(message);
-    return false;
-  }
-
-  const int contentLength = http.getSize();
-  if (contentLength > 0 && static_cast<uint32_t>(contentLength) != status_.firmwareSize) {
+  const size_t written = Update.write(data, length);
+  status_.writtenSize += static_cast<uint32_t>(written);
+  if (written != length) {
     char message[96];
     snprintf(
         message,
         sizeof(message),
-        "Firmware size mismatch: expected %lu, received %lu",
-        static_cast<unsigned long>(status_.firmwareSize),
-        static_cast<unsigned long>(contentLength));
-    http.end();
+        "Firmware write failed at %lu/%lu bytes: %u %.32s",
+        static_cast<unsigned long>(status_.writtenSize),
+        static_cast<unsigned long>(status_.expectedSize),
+        static_cast<unsigned>(Update.getError()),
+        Update.getErrorString().c_str());
     fail(message);
     return false;
   }
 
-  WiFiClient* stream = http.getStreamPtr();
-  if (!stream) {
-    http.end();
-    fail("OTA firmware stream is unavailable");
-    return false;
-  }
-
-  stream->setTimeout(5000);
-  const unsigned long streamWaitStarted = millis();
-  while (stream->available() == 0 && stream->connected() && millis() - streamWaitStarted < 5000UL) {
-    delay(10);
-    yield();
-  }
-  if (stream->available() == 0) {
-    http.end();
-    fail("OTA firmware stream returned no data");
-    return false;
-  }
-
-  // Do not consume the firmware header before Update.writeStream().
-  // The ESP8266 updater validates the first byte itself via Stream::peek().
-  if (stream->peek() != 0xE9) {
-    http.end();
-    fail("Downloaded file is not a valid ESP8266 firmware image");
-    return false;
-  }
-
-  if (!Update.begin(status_.firmwareSize, U_FLASH)) {
-    char message[96];
-    snprintf(message, sizeof(message), "Flash initialization failed: %u", Update.getError());
-    http.end();
-    fail(message);
-    return false;
-  }
-
-  appLog.info("OTA", "Firmware download accepted; flashing started");
-  const size_t written = Update.writeStream(*stream, 60000);
-  if (written != status_.firmwareSize) {
-    char message[96];
-    snprintf(
-        message,
-        sizeof(message),
-        "Firmware write incomplete: %lu/%lu bytes (error %u)",
-        static_cast<unsigned long>(written),
-        static_cast<unsigned long>(status_.firmwareSize),
-        Update.getError());
-    (void)Update.end();
-    http.end();
-    fail(message);
-    return false;
-  }
-
-  if (!Update.end() || !Update.isFinished()) {
-    char message[96];
-    snprintf(message, sizeof(message), "Firmware finalization failed: %u", Update.getError());
-    http.end();
-    fail(message);
-    return false;
-  }
-
-  http.end();
-  status_.lastError[0] = '\0';
-  status_.ok = true;
-  appLog.info("OTA", "Download and flash completed");
-  appLog.info("OTA", "Update completed; reboot required");
+  yield();
   return true;
+}
+
+bool OtaService::finishUpload(uint32_t uploadedSize) {
+  if (!status_.inProgress || !Update.isRunning()) {
+    fail("OTA upload is not active");
+    return false;
+  }
+
+  if (uploadedSize != status_.expectedSize || status_.writtenSize != status_.expectedSize) {
+    char message[96];
+    snprintf(
+        message,
+        sizeof(message),
+        "Firmware upload incomplete: %lu/%lu bytes",
+        static_cast<unsigned long>(status_.writtenSize),
+        static_cast<unsigned long>(status_.expectedSize));
+    resetUpdaterIfRunning();
+    fail(message);
+    return false;
+  }
+
+  if (!Update.end()) {
+    char message[96];
+    snprintf(
+        message,
+        sizeof(message),
+        "Firmware finalization failed: %u %.48s",
+        static_cast<unsigned>(Update.getError()),
+        Update.getErrorString().c_str());
+    fail(message);
+    return false;
+  }
+
+  status_.inProgress = false;
+  status_.completed = true;
+  status_.ok = true;
+  status_.lastError[0] = '\0';
+  appLog.info("OTA", "Browser upload flashed successfully; reboot scheduled");
+  return true;
+}
+
+void OtaService::abortUpload(const char* reason) {
+  resetUpdaterIfRunning();
+  if (status_.inProgress || reason) {
+    status_.inProgress = false;
+    status_.completed = false;
+    if (reason && *reason) {
+      fail(reason);
+      return;
+    }
+  }
+  status_.inProgress = false;
 }
 
 bool OtaService::parseSemver(const char* value, int& major, int& minor, int& patch) {
@@ -406,15 +230,4 @@ int OtaService::compareSemver(const char* a, const char* b) {
   if (an != bn) return an < bn ? -1 : 1;
   if (ap != bp) return ap < bp ? -1 : 1;
   return 0;
-}
-
-bool OtaService::isAllowedFirmwareUrl(const char* url) {
-  if (!url || !*url) return false;
-
-  char expected[192];
-  buildRawUrl(expected, sizeof(expected), OTA_ASSET_NAME);
-  const size_t expectedLen = strlen(expected);
-
-  if (strncmp(url, expected, expectedLen) != 0) return false;
-  return url[expectedLen] == '\0' || url[expectedLen] == '?';
 }

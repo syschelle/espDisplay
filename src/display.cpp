@@ -92,15 +92,16 @@ void DisplayService::tick(const AppSettings& cfg, const ExternalValues& values) 
   bool showClock = cfg.displayMode == DisplayMode::Clock;
   if (cfg.displayMode == DisplayMode::Alternate) {
     // Start every alternate cycle with a complete clock phase. The configured
-    // interval now controls only how long the clock stays visible; the metric
-    // is always shown for exactly one second between clock phases.
+    // clock interval controls how long the clock stays visible. The API
+    // value has its own independently configurable duration in ms.
     if (!alternateCycleActive_) {
       alternateCycleStartedMs_ = nowMs;
       alternateCycleActive_ = true;
     }
     showClock = alternateClockVisible(
         static_cast<uint32_t>(nowMs - alternateCycleStartedMs_),
-        cfg.alternateSeconds);
+        cfg.alternateSeconds,
+        cfg.apiValueDisplayMs);
   } else {
     alternateCycleActive_ = false;
   }

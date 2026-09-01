@@ -46,16 +46,21 @@ int main() {
   assert(!invalid.valid);
 
 
-  // Alternate mode: configured seconds apply only to the clock. The metric
-  // occupies exactly the following one-second phase.
-  assert(alternateClockVisible(0, 10));
-  assert(alternateClockVisible(9999, 10));
-  assert(!alternateClockVisible(10000, 10));
-  assert(!alternateClockVisible(10999, 10));
-  assert(alternateClockVisible(11000, 10));
-  assert(alternateClockVisible(11001, 10));
-  assert(!alternateClockVisible(21000, 10));
-  assert(alternateClockVisible(22000, 10));
+  // Alternate mode: clock duration is configured in seconds, while the API
+  // value duration is configured independently in milliseconds.
+  assert(alternateClockVisible(0, 10, 500));
+  assert(alternateClockVisible(9999, 10, 500));
+  assert(!alternateClockVisible(10000, 10, 500));
+  assert(!alternateClockVisible(10499, 10, 500));
+  assert(alternateClockVisible(10500, 10, 500));
+  assert(alternateClockVisible(20499, 10, 500));
+  assert(!alternateClockVisible(20500, 10, 500));
+  assert(alternateClockVisible(21000, 10, 500));
+
+  // A non-round millisecond duration must also be honored exactly.
+  assert(!alternateClockVisible(10000, 10, 1250));
+  assert(!alternateClockVisible(11249, 10, 1250));
+  assert(alternateClockVisible(11250, 10, 1250));
 
   assert(degreeSymbolSegment() == 0x63);
 

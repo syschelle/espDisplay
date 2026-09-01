@@ -25,9 +25,10 @@ bool formatClockFrame(uint8_t hour, uint8_t minute, uint8_t second, ClockFrame& 
 // The TM1637 center colon is lit on even seconds and dark on odd seconds.
 bool clockColonVisible(uint8_t second);
 
-// In alternate mode the configured interval controls only the clock phase.
-// The metric phase is fixed at exactly one second.
-bool alternateClockVisible(uint32_t elapsedMs, uint16_t clockSeconds);
+// In alternate mode the clock phase is configured in seconds and the
+// API-value phase is configured independently in milliseconds.
+bool alternateClockVisible(uint32_t elapsedMs, uint16_t clockSeconds,
+                           uint32_t apiValueDisplayMs);
 
 // Raw TM1637 seven-segment approximation of the degree symbol.
 uint8_t degreeSymbolSegment();

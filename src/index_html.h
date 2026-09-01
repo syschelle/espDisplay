@@ -175,6 +175,10 @@ const char INDEX_HTML[] PROGMEM = R"ED8266(
               <label for="alternateSeconds" data-i18n="display.alternate">Uhrzeit-Anzeigedauer (s)</label>
               <input id="alternateSeconds" type="number" min="2" max="120" step="1">
             </div>
+            <div class="form-group" id="apiValueTimingGroup">
+              <label for="apiValueDisplayMs" data-i18n="display.apiValueDuration">API-Wert-Anzeigedauer (ms)</label>
+              <input id="apiValueDisplayMs" type="number" min="100" max="200000" step="50">
+            </div>
           </div>
           <p class="hint" data-i18n="display.pinHint">Pinänderungen werden nach dem Speichern durch einen Neustart aktiv. GPIO0, GPIO2 und GPIO15 beeinflussen den Bootmodus; GPIO1/GPIO3 werden für die serielle Schnittstelle verwendet.</p>
           <button class="primary" type="submit" data-i18n="display.saveRestart">Speichern</button>
@@ -267,6 +271,7 @@ const char INDEX_HTML[] PROGMEM = R"ED8266(
       <section id="ota" class="page card">
         <h1 data-i18n="ota.title">OTA Update</h1>
         <p class="hint"><span data-i18n="ota.channel">Release-Kanal</span>: <code id="otaChannel">--</code></p>
+        <p class="hint" data-i18n="ota.browserHint">Updateprüfung und Firmware-Download erfolgen im Browser; der ESP8266 erhält nur die geprüfte Firmware.</p>
         <dl class="kv">
           <div><dt data-i18n="ota.current">Installiert</dt><dd id="otaCurrent">--</dd></div>
           <div><dt data-i18n="ota.latest">Verfügbar</dt><dd id="otaLatest">--</dd></div>

@@ -171,11 +171,12 @@ bool clockColonVisible(uint8_t second) {
   return (second % 2U) == 0U;
 }
 
-bool alternateClockVisible(uint32_t elapsedMs, uint16_t clockSeconds) {
-  if (clockSeconds == 0U) return false;
+bool alternateClockVisible(uint32_t elapsedMs, uint16_t clockSeconds,
+                           uint32_t apiValueDisplayMs) {
+  if (clockSeconds == 0U || apiValueDisplayMs == 0U) return false;
 
   const uint32_t clockMs = static_cast<uint32_t>(clockSeconds) * 1000UL;
-  const uint32_t cycleMs = clockMs + 1000UL;
+  const uint32_t cycleMs = clockMs + apiValueDisplayMs;
   return (elapsedMs % cycleMs) < clockMs;
 }
 

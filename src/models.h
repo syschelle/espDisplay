@@ -118,4 +118,5 @@ struct AppSettings {
   DisplayMode displayMode = DisplayMode::Metric;
   uint32_t displayUpdateMs = 1000UL;
   uint16_t alternateSeconds = 10;
+  uint32_t apiValueDisplayMs = 1000UL;
 };

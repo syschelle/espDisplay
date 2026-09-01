@@ -117,7 +117,7 @@ External API -> cooperative ESP8266 background poll -> RAM last-known-good cache
 
 Only one external API request may be active at a time. The next polling interval starts after the previous request finishes, so a slow server cannot create overlapping requests.
 
-The API response body buffer is allocated dynamically only while a response is being received and is released immediately after success, failure, timeout or cancellation. This avoids permanently reserving roughly 8 KB of scarce ESP8266 DRAM. OTA operations temporarily suspend and abort any active external API request before BearSSL starts a TLS connection, then resume API polling after an OTA check or failed install.
+The API response body buffer is allocated dynamically only while a response is being received and is released immediately after success, failure, timeout or cancellation. This avoids permanently reserving roughly 8 KB of scarce ESP8266 DRAM. Starting with v0.1.17 the ESP8266 no longer opens GitHub TLS connections for OTA at all. The browser downloads and verifies release artifacts, and the external API is suspended only while the already-verified firmware is streamed locally into flash.
 
 ### Supported top-level fields
 
@@ -192,7 +192,8 @@ Persistent display settings:
 - Metric-only mode
 - Clock-only mode
 - Alternating metric/clock mode
-- Clock display duration in alternating mode
+- Clock display duration in alternating mode (seconds)
+- API-value display duration in alternating mode (100–200,000 ms)
 
 ### Four-digit formatting
 
@@ -205,7 +206,7 @@ The formatter deliberately fits values to four digits:
 - External air temperature is rounded to the nearest whole degree and uses the final TM1637 digit as a seven-segment degree symbol, e.g. `23.6 °C -> 24°`.
 - Missing/invalid values show `----`.
 
-In alternating mode, the configured duration now applies only to the clock phase. The selected API metric is shown for exactly one second between clock phases. For example, a value of 10 seconds produces `clock 10 s -> metric 1 s -> clock 10 s -> metric 1 s`.
+In alternating mode, the clock and API-value phases are configured independently. The clock duration remains in seconds, while the API-value duration is configured in milliseconds. For example, `clock = 10 s` and `API value = 500 ms` produces `clock 10 s -> metric 500 ms -> clock 10 s -> metric 500 ms`. The API-value duration defaults to 1000 ms so existing behavior is preserved after migration.
 
 When the internal formatter scales a value by 1000, the web status page marks the rendered value with `×1000`. A four-digit TM1637 cannot display a textual `kW` suffix.
 
@@ -300,9 +301,7 @@ Repository:
 syschelle/espDisplay
 ```
 
-Starting with **v0.1.7**, the ESP8266 no longer queries the GitHub Releases API and no longer downloads firmware through GitHub Release asset URLs. Real-device testing showed that the Release asset redirect path is unnecessarily fragile on the resource-constrained ESP8266.
-
-Instead, tagged releases publish a small dedicated `ota` branch containing exactly:
+Tagged releases continue to publish a dedicated `ota` branch containing exactly:
 
 ```text
 manifest.json
@@ -311,77 +310,78 @@ firmware.bin.sha256
 README.md
 ```
 
-The ESP8266 uses two fixed HTTPS resources:
+### Browser-assisted OTA (v0.1.17+)
+
+Starting with **v0.1.17**, GitHub HTTPS is handled by the browser instead of the ESP8266. This removes BearSSL/GitHub TLS handshakes from the resource-constrained device and prevents an update check from consuming enough ESP8266 heap to trigger a reset.
+
+The browser uses the pinned channel:
 
 ```text
 https://raw.githubusercontent.com/syschelle/espDisplay/ota/manifest.json
 https://raw.githubusercontent.com/syschelle/espDisplay/ota/firmware.bin
 ```
 
-The manifest contains only release metadata, for example:
+If a direct raw-content browser fetch fails, the UI can fall back to the GitHub Contents API for the same fixed repository and branch. The configured external measurement API is never involved in OTA discovery.
+
+The manifest contains release metadata, for example:
 
 ```json
 {
-  "version": "v0.1.15",
+  "version": "v0.1.17",
   "firmware": "firmware.bin",
   "size": 412345,
   "sha256": "..."
 }
 ```
 
-The firmware does **not** accept an arbitrary firmware URL from the manifest. The binary URL is constructed internally from the fixed owner, repository, `ota` branch and `firmware.bin` name. This keeps the OTA channel pinned to this project.
+The **Check for update** path is browser-only:
 
-The check path:
+1. The browser downloads `ota/manifest.json` over normal browser HTTPS.
+2. It validates the semantic version, fixed `firmware.bin` name, positive size and SHA-256 format.
+3. It compares the manifest version with the installed firmware version obtained from the ESP's local `/api/state`.
+4. The ESP8266 does not contact GitHub, does not allocate BearSSL state, does not touch flash and does not reboot.
 
-1. Downloads `ota/manifest.json` from `raw.githubusercontent.com`.
-2. Requires HTTP 200 and a small valid JSON document.
-3. Requires a semantic `version` value.
-4. Requires `firmware` to be exactly `firmware.bin`.
-5. Requires a positive firmware `size`.
-6. Validates that the manifest contains a 64-character hexadecimal SHA-256 field.
-7. Compares the manifest version with the installed `FW_VERSION`.
-8. Verifies that the advertised size fits the available OTA sketch space.
+The **Install update** path is:
 
-The install path:
+1. The browser downloads the fixed `ota/firmware.bin`.
+2. The browser checks the exact manifest size.
+3. The browser checks the ESP8266 image magic byte `0xE9`.
+4. The browser computes SHA-256 locally and requires an exact match with the manifest.
+5. The browser requests a short-lived one-time OTA upload token from the ESP over the same local origin.
+6. The browser sends the verified binary to the ESP over the existing local HTTP connection using multipart upload and that token.
+7. At upload start the ESP aborts/suspends the slow external API client to free sockets and temporary buffers.
+8. `ESP8266WebServer` supplies the upload in small chunks; those chunks are written directly through `Update.write()`.
+9. The ESP also validates the first firmware byte, exact expected size and that the target semantic version is newer than the installed version.
+10. The ESP calls `Update.end()` only after the exact expected byte count has been received.
+11. A reboot is scheduled only after the local HTTP upload has returned success.
 
-1. Downloads the fixed `ota/firmware.bin` URL directly from `raw.githubusercontent.com`.
-2. Requires HTTP 200; no GitHub Release asset redirect is involved.
-3. Compares HTTP Content-Length with the manifest size when Content-Length is available.
-4. Requires the ESP8266 firmware magic byte `0xE9`.
-5. Starts `Update.begin()` with the exact manifest size.
-6. Streams the binary directly through `Update.writeStream()`.
-7. Requires the exact advertised byte count and successful `Update.end()`.
-8. Reboots only after the web request has reported success.
+The browser pauses `/api/state` polling only while firmware installation is running. Update checking itself does not pause the ESP or external API.
 
-The browser pauses `/api/state` polling while an OTA installation is running to avoid extra sockets and expected timeouts while the ESP8266 is downloading and flashing.
-
-A cache-busting query parameter is added to manifest and firmware requests so a newly published OTA branch is not confused with an older CDN-cached copy immediately after a release.
+This design uses the desktop/mobile browser's mature TLS stack and certificate validation while keeping the ESP8266 OTA side to a local streaming flash operation.
 
 ### Upgrade transition
 
-- The early development v0.1.0 firmware used the old `syschelle/EnergyDisplay8266` channel.
-- v0.1.1 through v0.1.6 used GitHub Release metadata/assets and the Release-asset download path proved unreliable on the real ESP8266.
-- v0.1.7 introduced the redirect-free channel, but v0.1.7/v0.1.8 still had a firmware-stream handoff bug during flashing.
-- **v0.1.9 fixes that stream-write bug and is the minimum recommended base for OTA validation.**
-- v0.1.10 successfully validated the complete redirect-free OTA path on real hardware.
-- v0.1.11 keeps that OTA path and adds the non-blocking external API poller plus configurable API port.
-- v0.1.12 prevents the slow API client from starving BearSSL/TLS during OTA checks by releasing API socket/buffer resources before OTA.
-- v0.1.13 rounds the external air temperature to a whole degree with a degree symbol and makes alternate mode show the metric for exactly one second while the configured interval applies only to the clock.
-- v0.1.14 keeps the external API suspended across the OTA check/install handoff to protect ESP8266 heap for BearSSL.
-- v0.1.15 formats the API-provided last measurement timestamp as a localized date and time on the Status page.
-- **v0.1.16 raises the TM1637 display refresh maximum to 200,000 ms (200 seconds) and migrates `displayUpdateMs` to 32-bit EEPROM storage.**
+- v0.1.7 introduced the redirect-free `ota` branch.
+- v0.1.9 fixed the original firmware-stream header handoff bug.
+- v0.1.10 successfully validated device-side redirect-free OTA on real hardware.
+- v0.1.11 added the cooperative slow external API poller and configurable API port.
+- v0.1.12/v0.1.14 added increasingly strict heap coordination between the external API and BearSSL OTA.
+- v0.1.16 can still reboot during **Check for update** on affected devices because the manifest TLS handshake itself still runs on the ESP8266.
+- **v0.1.17 removes GitHub TLS from the ESP8266 entirely and replaces it with browser-assisted OTA.**
 
-Do not run a full flash erase if existing EEPROM settings should be retained.
+Because the new local firmware-upload endpoint does not exist in v0.1.16, an affected v0.1.16 device that reboots during update checks must install v0.1.17 once via USB/serial. Do not erase flash if EEPROM settings should be retained. Future releases can then use the browser-assisted OTA path.
 
 ### OTA security note
 
-The OTA channel is hard-pinned to `syschelle/espDisplay`, branch `ota`, and file `firmware.bin`, but BearSSL currently uses `setInsecure()` to avoid embedding a GitHub certificate chain that may change. The SHA-256 value published in the same channel is useful release metadata but does not provide independent authenticity when fetched over the same unauthenticated TLS trust mode. A future hardening step should use validated CA trust or ESP8266 signed binaries.
+The browser obtains the manifest and firmware over normal HTTPS and validates the firmware SHA-256 before it is sent to the ESP8266. The local upload additionally requires a short-lived one-time token generated by the ESP. The ESP accepts only a semantic version newer than the installed version, requires the expected size, and validates the ESP8266 firmware magic byte.
+
+The SHA-256 is still published beside the firmware in the same repository, so it is an integrity check rather than an independent cryptographic release signature. Signed firmware remains a possible future hardening step.
 
 ## GitHub Release workflow
 
 `.github/workflows/release-firmware.yml` builds the `d1_mini` ESP8266 environment on pushes and pull requests to `main`. Tags matching `v*` perform both the normal GitHub Release and the dedicated ESP8266 OTA publication.
 
-For a tag such as `v0.1.15`, the workflow:
+For a tag such as `v0.1.17`, the workflow:
 
 1. Validates that the tag exactly matches `FW_VERSION` in `src/version.h`.
 2. Installs PlatformIO and runs the project checks.
@@ -401,7 +401,7 @@ The project starts at **v0.1.0**.
 `src/version.h` is the firmware's version source of truth:
 
 ```cpp
-#define FW_VERSION "v0.1.16"
+#define FW_VERSION "v0.1.17"
 ```
 
 The tag validation step prevents a GitHub release whose tag differs from the compiled firmware version. Every published functional change must receive a new version; never replace behavior under an already published version.
@@ -421,7 +421,7 @@ src/
   display_format.*     Four-digit formatting logic
   display.*            TM1637 rendering and clock/alternate modes
   logging.*            Fixed-size RAM log
-  ota.*                Redirect-free manifest check and ESP8266 OTA
+  ota.*                Local streaming firmware validation and flash writer
   web.*                Local web server and JSON endpoints
   index_html.h         Static PROGMEM HTML
   style_css.h          Static PROGMEM CSS
@@ -465,11 +465,12 @@ src/
 
 ### OTA fails
 
-- Verify Wi-Fi/internet access.
+- Verify the browser has internet access to GitHub.
 - Verify the tagged workflow completed successfully.
 - Verify branch `ota` contains `manifest.json`, `firmware.bin` and `firmware.bin.sha256`.
 - Open the raw `manifest.json` and confirm its version is newer than the installed semantic version.
-- Check the system log for the actual manifest/firmware HTTP status.
+- During installation, keep the browser tab open until the local upload reaches 100%.
+- Check the system log for local upload/flash errors and the recorded reset reason after any unexpected reboot.
 - Verify enough OTA sketch space is available.
 
 ## License

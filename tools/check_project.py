@@ -67,10 +67,12 @@ def test_web_assets() -> None:
     assert '<input id="displayDioGpio" type="number"' in html
     assert '<input id="apiPort" type="number" min="1" max="65535"' in html
     assert '<input id="displayUpdateMs" type="number" min="250" max="200000"' in html
+    assert '<input id="apiValueDisplayMs" type="number" min="100" max="200000"' in html
     assert '<select id="displayClkGpio"' not in html
     assert '<select id="displayDioGpio"' not in html
     assert "String.replace" not in html
-    assert "http://" not in js and "https://" not in js, "browser JS must not call the external API"
+    assert "/api/current-values" not in js, "browser JS must never call the configured external measurement API directly"
+    assert "https://raw.githubusercontent.com/syschelle/espDisplay/ota/" in js, "browser-assisted OTA must use the pinned ota branch"
     assert 'apiFetch("/api/state")' in js
     assert "setInterval(loadState,5000)" in js
     assert "function fmtDateTime(value,timeZone)" in js
@@ -98,6 +100,11 @@ def test_web_assets() -> None:
     js_path.write_text(js, encoding="utf-8")
     subprocess.run(["node", "--check", str(js_path)], check=True)
 
+    sha_start = js.index("function sha256Hex(bytes){")
+    sha_end = js.index("function validateOtaManifest", sha_start)
+    sha_test = js[sha_start:sha_end] + "\nconst value = new TextEncoder().encode(\"abc\");\nif (sha256Hex(value) !== \"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\") { throw new Error(\"browser SHA-256 implementation failed\"); }\n"
+    subprocess.run(["node", "-e", sha_test], check=True)
+
 
 def test_architecture_guards() -> None:
     all_cpp = "\n".join(p.read_text(encoding="utf-8") for p in SRC.glob("*.*") if p.suffix in {".cpp", ".h"})
@@ -119,6 +126,7 @@ def test_architecture_guards() -> None:
     assert "API_READ_BUDGET_BYTES = 384" in config
     assert "MAX_EXTERNAL_API_BYTES = 8192" in config
     assert "MAX_DISPLAY_UPDATE_MS = 200000UL" in config, "display refresh interval must allow up to 200 seconds"
+    assert "MIN_API_VALUE_DISPLAY_MS = 100UL" in config and "MAX_API_VALUE_DISPLAY_MS = 200000UL" in config
     assert "HTTPClient" not in external, "external API polling must not use blocking ESP8266HTTPClient"
     assert ".GET()" not in external and "getString()" not in external, "external API polling must remain cooperative"
     assert "RequestState::Headers" in external and "RequestState::Body" in external
@@ -166,10 +174,12 @@ def test_architecture_guards() -> None:
     assert "LEGACY_SETTINGS_SCHEMA_VERSION = 1" in config
     assert "DISPLAY_GPIO_SETTINGS_SCHEMA_VERSION = 2" in config
     assert "PREVIOUS_SETTINGS_SCHEMA_VERSION = 3" in config
-    assert "SETTINGS_SCHEMA_VERSION = 4" in config
+    assert "DISPLAY_UPDATE_SETTINGS_SCHEMA_VERSION = 4" in config
+    assert "SETTINGS_SCHEMA_VERSION = 5" in config
     assert "uint32_t displayUpdateMs = 1000UL" in models
     assert "PersistedSettingsPayloadV4" in settings and "uint32_t displayUpdateMs;" in settings
-    assert all(token in settings for token in ["PersistedSettingsRecordV1", "PersistedSettingsRecordV2", "PersistedSettingsRecordV3", "PersistedSettingsRecordV4"])
+    assert "PersistedSettingsPayloadV5" in settings and "uint32_t apiValueDisplayMs;" in settings
+    assert all(token in settings for token in ["PersistedSettingsRecordV1", "PersistedSettingsRecordV2", "PersistedSettingsRecordV3", "PersistedSettingsRecordV4", "PersistedSettingsRecordV5"])
     assert "apiPort" in models and "apiPort" in settings
     assert "Settings migrated from schema %u to schema %u" in settings
     assert "TM1637 initialized: CLK GPIO%u, DIO GPIO%u" in display
@@ -182,7 +192,8 @@ def test_architecture_guards() -> None:
     assert "snprintf(out.chars" not in display_format, "clock renderer must not use warning-prone snprintf formatting"
     assert "lastClockSecond_" in display, "clock rendering must track seconds independently from metric refresh"
     assert "displayUpdateMs" in display and "showClock" in display
-    assert "alternateClockVisible" in display_format and "alternateClockVisible" in display, "alternate mode must use fixed one-second metric phases"
+    assert "alternateClockVisible" in display_format and "alternateClockVisible" in display, "alternate mode must use independently configurable clock/API phases"
+    assert "cfg.apiValueDisplayMs" in display, "alternate mode must honor the configured API-value display duration"
     assert "degreeSymbolSegment" in display_format and "degreeSuffix" in display, "temperature must render a dedicated degree suffix"
     assert "buildRoundedTemperatureFrame" in display_format, "air temperature must be rounded to an integer"
     assert 'copyText(lastRenderedText_, "Conn")' in display, "startup wait state must be Conn"
@@ -191,8 +202,10 @@ def test_architecture_guards() -> None:
     assert 'timeService.getLocalTm(validTimeProbe)' in display, "display must gate normal rendering until local time is valid"
     main_cpp = (SRC / "main.cpp").read_text(encoding="utf-8")
     assert main_cpp.index("displayService.begin(settings)") < main_cpp.index("networkService.begin(settings)"), "Conn must appear before Wi-Fi/NTP boot waits"
+    assert "ESP.getResetReason()" in main_cpp, "unexpected reboot diagnostics must record the ESP8266 reset reason"
     assert 'const uint32_t updateMs = root["updateMs"].as<uint32_t>();' in web
     assert 'next.displayUpdateMs = updateMs;' in web
+    assert 'next.apiValueDisplayMs = apiValueDisplayMs;' in web
     assert 'static_cast<uint16_t>(updateMs)' not in web, "200-second display interval must not be truncated to 16 bits"
     assert 'root["clkGpio"]' in web and 'root["dioGpio"]' in web
     assert 'root["apiPort"]' in web and 'settings.apiPort' in web
@@ -212,27 +225,27 @@ def test_architecture_guards() -> None:
     assert 'OTA_GITHUB_REPO[] = "espDisplay"' in cfg
     assert 'OTA_BRANCH[] = "ota"' in cfg
     assert 'OTA_MANIFEST_NAME[] = "manifest.json"' in cfg
-    assert "#include <ESP8266httpUpdate.h>" not in ota and "ESPhttpUpdate." not in ota, "OTA install path must not use ESPhttpUpdate"
-    assert "api.github.com" not in ota, "ESP8266 OTA checks must not use the GitHub Releases API"
-    assert "release-assets.githubusercontent.com" not in ota, "ESP8266 OTA must not depend on GitHub release-asset redirects"
-    assert "https://raw.githubusercontent.com/%s/%s/%s/%s" in ota, "OTA must use the fixed raw.githubusercontent.com channel"
-    assert 'strcmp(firmwareName, OTA_ASSET_NAME) != 0' in ota, "OTA manifest must be pinned to firmware.bin"
-    assert "isSha256Hex" in ota, "OTA manifest must validate the generated SHA-256 field"
-    assert "OTA manifest returned HTTP %d" in ota, "manifest failures must log the actual HTTP status"
-    assert "OTA firmware returned HTTP %d" in ota, "firmware failures must log the actual HTTP status"
-    assert "Update.writeStream(*stream" in ota, "OTA must stream firmware directly to the ESP8266 updater"
-    assert "contentLength > 0" in ota and "status_.firmwareSize" in ota, "OTA must compare HTTP size when available with manifest metadata"
-    assert "stream->peek() != 0xE9" in ota, "OTA must validate the ESP8266 firmware magic byte without consuming it"
-    assert "readBytes(header" not in ota and "Update.write(header" not in ota, "OTA must not pre-consume the firmware header before Update.writeStream"
-    assert "Update.writeStream(*stream, 60000)" in ota, "OTA must let the ESP8266 updater consume the stream from byte zero"
-    assert "startOtaHold()" in web and "releaseOtaHold()" in web, "OTA must coordinate an exclusive API/heap hold"
-    assert 'Update ready; external API remains paused for install' in web, "successful OTA checks must keep API polling suspended"
-    assert web.count("otaService.check()") >= 2, "OTA install must refresh the manifest while API polling is suspended"
-    assert "OTA_HOLD_TIMEOUT_MS = 300000UL" in (SRC / "web.h").read_text(encoding="utf-8"), "OTA hold must expire safely if install is abandoned"
-    assert "HTTPClient::errorToString(code)" in ota, "negative OTA transport errors must include the ESP8266 HTTPClient reason"
-    assert "ESP.getFreeHeap()" in ota, "OTA connection failures must include free-heap diagnostics"
-    assert "ESP.getMaxFreeBlockSize()" in ota and "ESP.getHeapFragmentation()" in ota, "OTA diagnostics must include largest heap block and fragmentation"
-    assert "otaUpdateActive" in web_js, "frontend must pause state polling while OTA is running"
+    assert "WiFiClientSecure" not in ota and "HTTPClient" not in ota and "BearSSL" not in ota, "ESP8266 OTA must not open GitHub TLS connections"
+    assert "raw.githubusercontent.com" not in ota and "api.github.com" not in ota, "ESP8266 OTA code must remain browser-assisted and network-independent"
+    assert "Update.begin(expectedSize, U_FLASH)" in ota, "browser upload must initialize the ESP8266 updater with the manifest size"
+    assert "Update.write(data, length)" in ota, "browser upload must stream chunks directly into flash"
+    assert "data[0] != 0xE9" in ota, "uploaded firmware must validate the ESP8266 magic byte"
+    assert "status_.writtenSize + length > status_.expectedSize" in ota, "OTA chunks must never exceed the expected firmware size"
+    assert "uploadedSize != status_.expectedSize" in ota, "OTA completion must require the exact manifest size"
+    assert "compareSemver(FW_VERSION, targetVersion) >= 0" in ota, "device must refuse same/older browser OTA images"
+    assert '"/api/ota/session"' in web and '"/api/ota/upload"' in web, "web server must expose a short-lived OTA session and local streaming upload endpoint"
+    assert "ESP.random()" in web and "otaUploadTokenExpiresMs_" in web, "local OTA upload must require a short-lived one-time session token"
+    assert "UPLOAD_FILE_START" in web and "UPLOAD_FILE_WRITE" in web and "UPLOAD_FILE_END" in web, "OTA upload must use ESP8266WebServer streaming callbacks"
+    assert "externalApiService.suspend()" in web, "external API must be suspended only when local firmware flashing begins"
+    assert "handleOtaCheck" not in web and "otaService.check()" not in web, "update checks must not perform TLS on the ESP8266"
+    assert "OTA_HOLD_TIMEOUT_MS" not in (SRC / "web.h").read_text(encoding="utf-8"), "obsolete manifest/check OTA hold must be removed"
+    assert "OTA_RAW_BASE" in web_js and "OTA_API_BASE" in web_js, "browser must own GitHub access with a fallback path"
+    assert 'fetchOtaBytes("manifest.json")' in web_js and 'fetchOtaBytes("firmware.bin"' in web_js
+    assert "sha256Hex(bytes)" in web_js and "Firmware SHA-256 mismatch" in web_js, "browser must verify manifest SHA-256 before uploading"
+    assert 'bytes[0]!==0xE9' in web_js, "browser must reject a non-ESP8266 firmware image before local upload"
+    assert 'apiFetch("/api/ota/session",{method:"POST"})' in web_js, "browser must obtain a same-origin one-time upload session before flashing"
+    assert "FormData" in web_js and "XMLHttpRequest" in web_js and "/api/ota/upload?version=" in web_js and "&token=" in web_js, "browser must upload firmware locally with streaming multipart form data and the one-time session token"
+    assert "otaUpdateActive" in web_js, "frontend must pause state polling while OTA flashing is running"
     assert "Prepare release and OTA assets" in workflow
     assert '"version": "$GITHUB_REF_NAME"' in workflow
     assert '"firmware": "firmware.bin"' in workflow
