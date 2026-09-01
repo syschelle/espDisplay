@@ -37,14 +37,6 @@ bool readNumber(JsonVariantConst source, NumericValue& target) {
   return true;
 }
 
-bool readBool(JsonVariantConst source, bool fallback = false) {
-  return source.is<bool>() ? source.as<bool>() : fallback;
-}
-
-int32_t readInt(JsonVariantConst source, int32_t fallback = -1) {
-  return source.is<int32_t>() ? source.as<int32_t>() : fallback;
-}
-
 void copyJsonString(JsonVariantConst source, char* dest, size_t destSize) {
   if (destSize == 0) return;
   dest[0] = '\0';
@@ -530,43 +522,15 @@ bool ExternalApiService::parsePayload(
     ExternalValues& next,
     char* error,
     size_t errorLen) {
+  // espDisplay only consumes the external air temperature. ArduinoJson's
+  // filter prevents all unrelated power, energy, humidity, pressure and
+  // particulate fields from being materialized in the JSON document.
   JsonDocument filter;
-  filter["timestamp_utc"] = true;
-  filter["local_date"] = true;
   filter["timezone"] = true;
   filter["last_measurement_at"] = true;
-  filter["current_solar_production_w"] = true;
-  filter["current_grid_power_w"] = true;
-  filter["current_grid_import_w"] = true;
-  filter["current_grid_export_w"] = true;
-  filter["current_total_consumption_w"] = true;
-  filter["daily_solar_production_kwh"] = true;
-  filter["daily_grid_import_kwh"] = true;
-  filter["daily_grid_export_kwh"] = true;
-  filter["total_solar_production_kwh"] = true;
-  filter["total_grid_import_kwh"] = true;
-  filter["total_grid_export_kwh"] = true;
-
   JsonObject airFilter = filter["air_sensor"].to<JsonObject>();
-  airFilter["enabled"] = true;
-  airFilter["configured"] = true;
-  airFilter["ok"] = true;
-  airFilter["cached"] = true;
   airFilter["temperature_c"] = true;
-  airFilter["humidity_percent"] = true;
-  airFilter["dew_point_c"] = true;
-  airFilter["pressure_hpa"] = true;
-  airFilter["pressure_sea_level_hpa"] = true;
-  airFilter["sds_p1"] = true;
-  airFilter["sds_p2"] = true;
-  airFilter["age_seconds"] = true;
-  airFilter["software_version"] = true;
   airFilter["last_success_at"] = true;
-  airFilter["last_error"] = true;
-  airFilter["weather_underground_last_ok"] = true;
-  airFilter["weather_underground_last_status"] = true;
-  airFilter["weather_underground_last_response"] = true;
-  airFilter["weather_underground_last_at"] = true;
 
   JsonDocument doc;
   const DeserializationError parse = deserializeJson(
@@ -587,62 +551,22 @@ bool ExternalApiService::parsePayload(
   }
 
   JsonObjectConst root = doc.as<JsonObjectConst>();
-  copyJsonString(root["timestamp_utc"], next.timestampUtc, sizeof(next.timestampUtc));
-  copyJsonString(root["local_date"], next.localDate, sizeof(next.localDate));
   copyJsonString(root["timezone"], next.remoteTimezone, sizeof(next.remoteTimezone));
-  copyJsonString(root["last_measurement_at"], next.lastMeasurementAt, sizeof(next.lastMeasurementAt));
-
-  uint8_t recognized = 0;
-  recognized += readNumber(root["current_solar_production_w"], next.currentSolarProductionW) ? 1 : 0;
-  recognized += readNumber(root["current_grid_power_w"], next.currentGridPowerW) ? 1 : 0;
-  recognized += readNumber(root["current_grid_import_w"], next.currentGridImportW) ? 1 : 0;
-  recognized += readNumber(root["current_grid_export_w"], next.currentGridExportW) ? 1 : 0;
-  recognized += readNumber(root["current_total_consumption_w"], next.currentTotalConsumptionW) ? 1 : 0;
-  recognized += readNumber(root["daily_solar_production_kwh"], next.dailySolarProductionKwh) ? 1 : 0;
-  recognized += readNumber(root["daily_grid_import_kwh"], next.dailyGridImportKwh) ? 1 : 0;
-  recognized += readNumber(root["daily_grid_export_kwh"], next.dailyGridExportKwh) ? 1 : 0;
-  recognized += readNumber(root["total_solar_production_kwh"], next.totalSolarProductionKwh) ? 1 : 0;
-  recognized += readNumber(root["total_grid_import_kwh"], next.totalGridImportKwh) ? 1 : 0;
-  recognized += readNumber(root["total_grid_export_kwh"], next.totalGridExportKwh) ? 1 : 0;
 
   JsonVariantConst airVariant = root["air_sensor"];
-  if (airVariant.is<JsonObjectConst>()) {
-    next.air.present = true;
-    JsonObjectConst air = airVariant.as<JsonObjectConst>();
-
-    next.air.enabled = readBool(air["enabled"]);
-    next.air.configured = readBool(air["configured"]);
-    next.air.ok = readBool(air["ok"]);
-    next.air.cached = readBool(air["cached"]);
-
-    recognized += readNumber(air["temperature_c"], next.air.temperatureC) ? 1 : 0;
-    recognized += readNumber(air["humidity_percent"], next.air.humidityPercent) ? 1 : 0;
-    recognized += readNumber(air["dew_point_c"], next.air.dewPointC) ? 1 : 0;
-    recognized += readNumber(air["pressure_hpa"], next.air.pressureHpa) ? 1 : 0;
-    recognized += readNumber(air["pressure_sea_level_hpa"], next.air.pressureSeaLevelHpa) ? 1 : 0;
-    recognized += readNumber(air["sds_p1"], next.air.pm10) ? 1 : 0;
-    recognized += readNumber(air["sds_p2"], next.air.pm25) ? 1 : 0;
-
-    next.air.ageSeconds = readInt(air["age_seconds"], -1);
-    copyJsonString(air["software_version"], next.air.softwareVersion, sizeof(next.air.softwareVersion));
-    copyJsonString(air["last_success_at"], next.air.lastSuccessAt, sizeof(next.air.lastSuccessAt));
-    copyJsonString(air["last_error"], next.air.lastError, sizeof(next.air.lastError));
-
-    next.air.weatherUndergroundLastOk = readBool(air["weather_underground_last_ok"]);
-    next.air.weatherUndergroundLastStatus =
-        static_cast<int16_t>(readInt(air["weather_underground_last_status"], 0));
-    copyJsonString(
-        air["weather_underground_last_response"],
-        next.air.weatherUndergroundLastResponse,
-        sizeof(next.air.weatherUndergroundLastResponse));
-    copyJsonString(
-        air["weather_underground_last_at"],
-        next.air.weatherUndergroundLastAt,
-        sizeof(next.air.weatherUndergroundLastAt));
+  if (!airVariant.is<JsonObjectConst>()) {
+    snprintf(error, errorLen, "JSON contains no air_sensor object");
+    return false;
   }
 
-  if (recognized == 0) {
-    snprintf(error, errorLen, "JSON contains no supported numeric values");
+  JsonObjectConst air = airVariant.as<JsonObjectConst>();
+  copyJsonString(air["last_success_at"], next.lastMeasurementAt, sizeof(next.lastMeasurementAt));
+  if (next.lastMeasurementAt[0] == '\0') {
+    copyJsonString(root["last_measurement_at"], next.lastMeasurementAt, sizeof(next.lastMeasurementAt));
+  }
+
+  if (!readNumber(air["temperature_c"], next.temperatureC)) {
+    snprintf(error, errorLen, "JSON contains no valid air temperature");
     return false;
   }
 

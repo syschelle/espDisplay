@@ -25,7 +25,6 @@ const char INDEX_HTML[] PROGMEM = R"ED8266(
   <div class="layout">
     <nav class="sidebar" id="sidebar">
       <a class="navlink" data-page="status" data-i18n="nav.status">Status</a>
-      <a class="navlink" data-page="values" data-i18n="nav.values">Messwerte</a>
       <a class="navlink" data-page="display" data-i18n="nav.display">Anzeige</a>
       <a class="navlink" data-page="settings" data-i18n="nav.settings">Systemeinstellungen</a>
       <a class="navlink" data-page="logging" data-i18n="nav.logging">Systemprotokoll</a>
@@ -39,7 +38,7 @@ const char INDEX_HTML[] PROGMEM = R"ED8266(
         <div class="page-heading">
           <div>
             <h1 data-i18n="status.title">Status</h1>
-            <p class="hint" data-i18n="status.hint">Lokaler Gerätestatus und zuletzt gecachte externe Messwerte.</p>
+            <p class="hint" data-i18n="status.hint">Lokaler Gerätestatus und zuletzt gecachte externe Temperatur.</p>
           </div>
           <span class="badge neutral" id="overallBadge">--</span>
         </div>
@@ -96,44 +95,6 @@ const char INDEX_HTML[] PROGMEM = R"ED8266(
         </div>
       </section>
 
-      <section id="values" class="page">
-        <h1 data-i18n="values.title">Messwerte</h1>
-        <div class="section-title" data-i18n="values.current">Aktuell</div>
-        <div class="metric-grid">
-          <div class="metric-card"><span data-i18n="metric.solarW">Solarleistung</span><strong id="mSolarW">--</strong></div>
-          <div class="metric-card"><span data-i18n="metric.gridW">Netzleistung</span><strong id="mGridW">--</strong></div>
-          <div class="metric-card"><span data-i18n="metric.importW">Netzbezug</span><strong id="mImportW">--</strong></div>
-          <div class="metric-card"><span data-i18n="metric.exportW">Netzeinspeisung</span><strong id="mExportW">--</strong></div>
-          <div class="metric-card"><span data-i18n="metric.consumptionW">Gesamtverbrauch</span><strong id="mConsumptionW">--</strong></div>
-        </div>
-
-        <div class="section-title" data-i18n="values.today">Heute</div>
-        <div class="metric-grid">
-          <div class="metric-card"><span data-i18n="metric.dailySolar">Solar</span><strong id="mDailySolar">--</strong></div>
-          <div class="metric-card"><span data-i18n="metric.dailyImport">Netzbezug</span><strong id="mDailyImport">--</strong></div>
-          <div class="metric-card"><span data-i18n="metric.dailyExport">Einspeisung</span><strong id="mDailyExport">--</strong></div>
-        </div>
-
-        <div class="section-title" data-i18n="values.total">Gesamt</div>
-        <div class="metric-grid">
-          <div class="metric-card"><span data-i18n="metric.totalSolar">Solar</span><strong id="mTotalSolar">--</strong></div>
-          <div class="metric-card"><span data-i18n="metric.totalImport">Netzbezug</span><strong id="mTotalImport">--</strong></div>
-          <div class="metric-card"><span data-i18n="metric.totalExport">Einspeisung</span><strong id="mTotalExport">--</strong></div>
-        </div>
-
-        <div id="airSection">
-          <div class="section-title" data-i18n="values.air">Externe Luftdaten</div>
-          <div class="metric-grid">
-            <div class="metric-card"><span data-i18n="metric.temperature">Temperatur</span><strong id="mAirTemp">--</strong></div>
-            <div class="metric-card"><span data-i18n="metric.humidity">Luftfeuchte</span><strong id="mAirHumidity">--</strong></div>
-            <div class="metric-card"><span data-i18n="metric.dewPoint">Taupunkt</span><strong id="mDewPoint">--</strong></div>
-            <div class="metric-card"><span data-i18n="metric.pm10">PM10</span><strong id="mPm10">--</strong></div>
-            <div class="metric-card"><span data-i18n="metric.pm25">PM2.5</span><strong id="mPm25">--</strong></div>
-            <div class="metric-card"><span data-i18n="metric.pressure">Luftdruck</span><strong id="mPressure">--</strong></div>
-          </div>
-        </div>
-      </section>
-
       <section id="display" class="page card">
         <h1 data-i18n="display.title">Anzeige</h1>
         <form id="displayForm">
@@ -143,10 +104,6 @@ const char INDEX_HTML[] PROGMEM = R"ED8266(
           </label>
 
           <div class="form-grid">
-            <div class="form-group" id="metricSettingGroup">
-              <label for="selectedMetric" data-i18n="display.metric">Anzuzeigender Wert</label>
-              <select id="selectedMetric"></select>
-            </div>
             <div class="form-group">
               <label for="displayBrightness" data-i18n="display.brightness">Helligkeit (0–7)</label>
               <input id="displayBrightness" type="number" min="0" max="7" step="1">
@@ -166,9 +123,9 @@ const char INDEX_HTML[] PROGMEM = R"ED8266(
             <div class="form-group">
               <label for="displayMode" data-i18n="display.mode">Anzeigemodus</label>
               <select id="displayMode">
-                <option value="metric" data-i18n="display.modeMetric">Nur API-Wert</option>
+                <option value="metric" data-i18n="display.modeMetric">Nur Temperatur</option>
                 <option value="clock" data-i18n="display.modeClock">Nur Uhrzeit</option>
-                <option value="alternate" data-i18n="display.modeAlternate">API-Wert und Uhrzeit im Wechsel</option>
+                <option value="alternate" data-i18n="display.modeAlternate">Temperatur und Uhrzeit im Wechsel</option>
               </select>
             </div>
             <div class="form-group" id="alternateSettingGroup">
@@ -176,7 +133,7 @@ const char INDEX_HTML[] PROGMEM = R"ED8266(
               <input id="alternateSeconds" type="number" min="2" max="120" step="1">
             </div>
             <div class="form-group" id="apiValueTimingGroup">
-              <label for="apiValueDisplayMs" data-i18n="display.apiValueDuration">API-Wert-Anzeigedauer (ms)</label>
+              <label for="apiValueDisplayMs" data-i18n="display.apiValueDuration">Temperatur-Anzeigedauer (ms)</label>
               <input id="apiValueDisplayMs" type="number" min="100" max="200000" step="50">
             </div>
           </div>
@@ -286,7 +243,7 @@ const char INDEX_HTML[] PROGMEM = R"ED8266(
 
       <section id="factory" class="page card">
         <h1 data-i18n="factory.title">Werkseinstellungen</h1>
-        <p class="warning-box" data-i18n="factory.warning">Löscht WLAN-, API-, NTP- und Displayeinstellungen. Messwerte werden ohnehin nicht dauerhaft gespeichert.</p>
+        <p class="warning-box" data-i18n="factory.warning">Löscht WLAN-, API-, NTP- und Displayeinstellungen. Temperaturwerte werden nicht dauerhaft gespeichert.</p>
         <button class="primary danger" id="factoryResetBtn" type="button" data-i18n="factory.button">Werkseinstellungen wiederherstellen</button>
         <div class="form-status" id="factoryStatus"></div>
       </section>

@@ -10,33 +10,9 @@ struct NumericValue {
   float value = NAN;
 };
 
-struct AirSensorValues {
-  bool present = false;
-  bool enabled = false;
-  bool configured = false;
-  bool ok = false;
-  bool cached = false;
-
-  NumericValue temperatureC;
-  NumericValue humidityPercent;
-  NumericValue dewPointC;
-  NumericValue pressureHpa;
-  NumericValue pressureSeaLevelHpa;
-  NumericValue pm10;
-  NumericValue pm25;
-
-  int32_t ageSeconds = -1;
-
-  char softwareVersion[40] = "";
-  char lastSuccessAt[40] = "";
-  char lastError[96] = "";
-
-  bool weatherUndergroundLastOk = false;
-  int16_t weatherUndergroundLastStatus = 0;
-  char weatherUndergroundLastResponse[64] = "";
-  char weatherUndergroundLastAt[40] = "";
-};
-
+// Runtime cache for the external API. espDisplay v0.1.20 intentionally keeps
+// only the one measurement the device actually displays: air temperature.
+// Metadata needed by the Status page is retained separately.
 struct ExternalValues {
   bool valid = false;
   bool lastRequestOk = false;
@@ -48,51 +24,16 @@ struct ExternalValues {
   int16_t lastHttpStatus = 0;
   char lastError[96] = "";
 
-  char timestampUtc[40] = "";
-  char localDate[16] = "";
   char remoteTimezone[48] = "";
   char lastMeasurementAt[40] = "";
 
-  NumericValue currentSolarProductionW;
-  NumericValue currentGridPowerW;
-  NumericValue currentGridImportW;
-  NumericValue currentGridExportW;
-  NumericValue currentTotalConsumptionW;
-
-  NumericValue dailySolarProductionKwh;
-  NumericValue dailyGridImportKwh;
-  NumericValue dailyGridExportKwh;
-
-  NumericValue totalSolarProductionKwh;
-  NumericValue totalGridImportKwh;
-  NumericValue totalGridExportKwh;
-
-  AirSensorValues air;
+  NumericValue temperatureC;
 };
 
 enum class DisplayMode : uint8_t {
-  Metric = 0,
+  Metric = 0,     // Temperature only. Kept as "metric" on the wire for compatibility.
   Clock = 1,
   Alternate = 2
-};
-
-enum class MetricId : uint8_t {
-  SolarW = 0,
-  GridW,
-  GridImportW,
-  GridExportW,
-  ConsumptionW,
-  DailySolarKwh,
-  DailyGridImportKwh,
-  DailyGridExportKwh,
-  TotalSolarKwh,
-  TotalGridImportKwh,
-  TotalGridExportKwh,
-  AirTemperatureC,
-  AirHumidityPercent,
-  AirDewPointC,
-  AirPm10,
-  AirPm25
 };
 
 struct AppSettings {
@@ -114,7 +55,6 @@ struct AppSettings {
   uint8_t displayBrightness = 5;
   uint8_t displayClkGpio = 14;
   uint8_t displayDioGpio = 12;
-  MetricId selectedMetric = MetricId::GridImportW;
   DisplayMode displayMode = DisplayMode::Metric;
   uint32_t displayUpdateMs = 1000UL;
   uint16_t alternateSeconds = 10;

@@ -27,27 +27,25 @@ def test_api_fixture() -> None:
     raw = fixture_path.read_text(encoding="utf-8")
     assert len(raw.encode("utf-8")) < 8192
     data = json.loads(raw)
-    required = [
-        "current_solar_production_w", "current_grid_power_w", "current_grid_import_w",
-        "current_grid_export_w", "current_total_consumption_w", "daily_solar_production_kwh",
-        "daily_grid_import_kwh", "daily_grid_export_kwh", "total_solar_production_kwh",
-        "total_grid_import_kwh", "total_grid_export_kwh",
-    ]
-    for key in required:
-        assert isinstance(data[key], (int, float))
-    air = data["air_sensor"]
-    assert air["temperature_c"] == 22.85
-    assert air["humidity_percent"] == 76.88
-    assert air["sds_p1"] == 2.92
-    assert air["sds_p2"] == 0.7
+    assert data["timezone"] == "Europe/Berlin"
+    assert isinstance(data["last_measurement_at"], str)
+    assert data["air_sensor"]["temperature_c"] == 22.85
 
-    # Optional fields may be absent and unknown fields must be harmless to a filtered parser.
-    reduced = {"current_grid_import_w": 42.0, "unknown_future_field": {"anything": [1, 2, 3]}}
-    assert isinstance(reduced.get("current_grid_import_w"), (int, float))
-    assert reduced.get("air_sensor") is None
+    # The real API may still contain many unrelated values. v0.1.20 deliberately
+    # ignores them and only consumes air_sensor.temperature_c plus timestamp metadata.
+    assert "current_grid_import_w" in data
+    assert "humidity_percent" in data["air_sensor"]
+
+    reduced = {
+        "timezone": "Europe/Berlin",
+        "last_measurement_at": "2026-08-31T15:45:56+00:00",
+        "air_sensor": {"temperature_c": 21.5},
+        "unknown_future_field": {"anything": [1, 2, 3]},
+    }
+    assert reduced["air_sensor"]["temperature_c"] == 21.5
 
     try:
-        json.loads('{"current_grid_import_w": 42,')
+        json.loads('{"air_sensor":{"temperature_c":22.5},')
     except json.JSONDecodeError:
         pass
     else:
@@ -71,7 +69,9 @@ def test_web_assets() -> None:
     assert '<select id="displayClkGpio"' not in html
     assert '<select id="displayDioGpio"' not in html
     assert "String.replace" not in html
-    assert "/api/current-values" not in js, "browser JS must never call the configured external measurement API directly"
+    assert "/api/current-values" not in js, "browser JS must never call the configured external API directly"
+    assert 'data-page="values"' not in html and 'id="values"' not in html, "Measurements page must be removed"
+    assert 'id="selectedMetric"' not in html and "selectedMetric" not in js, "metric selection must be removed"
     assert "https://raw.githubusercontent.com/syschelle/espDisplay/ota/" in js, "browser-assisted OTA must use the pinned ota branch"
     assert 'apiFetch("/api/state")' in js
     assert "setInterval(loadState,5000)" in js
@@ -86,8 +86,7 @@ def test_web_assets() -> None:
     html_keys = set(re.findall(r'data-i18n="([^"]+)"', html))
     de_block, en_block = js.split("  en: {", 1)
     literal_t_keys = set(re.findall(r'(?<![A-Za-z0-9_$])t\("([^"]+)"\)', js))
-    metric_keys = set(re.findall(r'\["[^"]+","([^"]+)"\]', js))
-    required_i18n = html_keys | literal_t_keys | metric_keys
+    required_i18n = html_keys | literal_t_keys
     english_block = en_block.split("};", 1)[0]
     missing_de = sorted(k for k in required_i18n if f'"{k}"' not in de_block)
     missing_en = sorted(k for k in required_i18n if f'"{k}"' not in english_block)
@@ -143,15 +142,16 @@ def test_architecture_guards() -> None:
     assert "External API request paused for OTA" in external
     assert "values_ = next" in external
     assert "markFailure" in external
-    for field in [
+    assert '"temperature_c"' in external, "external parser must consume air temperature"
+    assert '"timezone"' in external and '"last_measurement_at"' in external
+    for removed_field in [
         "current_solar_production_w", "current_grid_power_w", "current_grid_import_w",
         "current_grid_export_w", "current_total_consumption_w", "daily_solar_production_kwh",
         "daily_grid_import_kwh", "daily_grid_export_kwh", "total_solar_production_kwh",
-        "total_grid_import_kwh", "total_grid_export_kwh", "temperature_c",
-        "humidity_percent", "dew_point_c", "pressure_hpa", "pressure_sea_level_hpa",
-        "sds_p1", "sds_p2", "age_seconds"
+        "total_grid_import_kwh", "total_grid_export_kwh", "humidity_percent",
+        "dew_point_c", "pressure_hpa", "pressure_sea_level_hpa", "sds_p1", "sds_p2"
     ]:
-        assert f'"{field}"' in external, f"external parser missing {field}"
+        assert f'"{removed_field}"' not in external, f"unneeded API field still parsed: {removed_field}"
     assert "#include <EEPROM.h>" in settings
     assert "EEPROM_SETTINGS_MAGIC" in settings and "payloadCrc" in settings
     assert "EEPROM.commit()" in settings
@@ -171,6 +171,10 @@ def test_architecture_guards() -> None:
     display = (SRC / "display.cpp").read_text(encoding="utf-8")
     web = (SRC / "web.cpp").read_text(encoding="utf-8")
     assert "displayClkGpio" in models and "displayDioGpio" in models
+    assert "MetricId" not in models and "selectedMetric" not in models, "runtime metric selection must be removed"
+    assert "NumericValue temperatureC" in models, "runtime cache must retain only temperature"
+    for removed in ["currentSolarProductionW", "currentGridPowerW", "humidityPercent", "dewPointC", "pm10", "pm25", "AirSensorValues"]:
+        assert removed not in models, f"unused runtime measurement remains: {removed}"
     assert "LEGACY_SETTINGS_SCHEMA_VERSION = 1" in config
     assert "DISPLAY_GPIO_SETTINGS_SCHEMA_VERSION = 2" in config
     assert "PREVIOUS_SETTINGS_SCHEMA_VERSION = 3" in config
@@ -180,6 +184,8 @@ def test_architecture_guards() -> None:
     assert "PersistedSettingsPayloadV4" in settings and "uint32_t displayUpdateMs;" in settings
     assert "PersistedSettingsPayloadV5" in settings and "uint32_t apiValueDisplayMs;" in settings
     assert all(token in settings for token in ["PersistedSettingsRecordV1", "PersistedSettingsRecordV2", "PersistedSettingsRecordV3", "PersistedSettingsRecordV4", "PersistedSettingsRecordV5"])
+    assert "SettingsManager::metricToString" not in settings and "SettingsManager::metricFromString" not in settings
+    assert "target.legacySelectedMetric = 11U" in settings, "legacy EEPROM metric slot should normalize to old temperature id"
     assert "apiPort" in models and "apiPort" in settings
     assert "Settings migrated from schema %u to schema %u" in settings
     assert "TM1637 initialized: CLK GPIO%u, DIO GPIO%u" in display
@@ -195,15 +201,15 @@ def test_architecture_guards() -> None:
     assert "alternateClockVisible" in display_format and "alternateDisplayShowsClock" in display, "alternate mode must use independently configurable clock/API phases"
     assert "cfg.apiValueDisplayMs" in display, "alternate mode must honor the configured API-value display duration"
     assert "degreeSymbolSegment" in display_format and "degreeSuffix" in display, "temperature must render a dedicated degree suffix"
-    assert "buildRoundedTemperatureFrame" in display_format, "air temperature must be rounded to an integer"
+    assert "formatTemperatureFrame" in display_format and "lroundf" in display_format, "air temperature must be rounded to an integer"
     assert 'copyText(lastRenderedText_, "Conn")' in display, "startup wait state must be Conn"
     assert "connectingSegments(segments)" in display, "Conn must use a deterministic segment frame"
     assert "showNumberDec(8888" not in display, "legacy 8888 startup self-test must be removed"
     assert 'timeService.getLocalTm(validTimeProbe)' in display, "display must gate normal rendering until local time is valid"
-    assert 'if (!selectedMetricAvailable)' in display and 'showClock = true;' in display and 'alternateDisplayShowsClock' in display, "alternate mode must stay on the clock until the selected API metric exists"
+    assert 'if (!temperatureAvailable)' in display and 'showClock = true;' in display and 'alternateDisplayShowsClock' in display, "alternate mode must stay on the clock until temperature exists"
     assert 'apiDataStaleForDisplay' in display, "physical display must apply age-based stale indication"
     assert 'degreeSymbolSegment(staleWarning)' in display, "stale temperature must add the warning segment to the degree digit"
-    assert 'lastMetricStaleWarning_ != staleWarning' in display, "fresh/stale transitions must refresh the display immediately"
+    assert 'lastTemperatureStaleWarning_ != staleWarning' in display, "fresh/stale transitions must refresh the display immediately"
     main_cpp = (SRC / "main.cpp").read_text(encoding="utf-8")
     assert main_cpp.index("displayService.begin(settings)") < main_cpp.index("networkService.begin(settings)"), "Conn must appear before Wi-Fi/NTP boot waits"
     assert "ESP.getResetReason()" in main_cpp, "unexpected reboot diagnostics must record the ESP8266 reset reason"
@@ -214,13 +220,15 @@ def test_architecture_guards() -> None:
     assert 'root["clkGpio"]' in web and 'root["dioGpio"]' in web
     assert 'root["apiPort"]' in web and 'settings.apiPort' in web
     assert 'externalApiService.requestInProgress()' in web
+    assert r'\"temperatureC\"' in web
+    for removed in ["currentSolarProductionW", "currentGridPowerW", "humidityPercent", "dewPointC", "pm10", "pm25", "airSensor"]:
+        assert removed not in web, f"unused web state measurement remains: {removed}"
     assert "restartScheduled" in web
     assert "sendProgmemAsset" in web
     assert "chunkedResponseModeStart" in web and "sendContent_P" in web
     assert "kChunkSize = 1024" in web
     assert 'no-store, no-cache, must-revalidate' in web
     assert 'root["clkGpio"].is<int>() ?' in web, "display endpoint must tolerate an older cached UI omitting pin fields"
-    assert 'mode != DisplayMode::Clock' in web, "clock-only mode must not require a metric"
 
     ota = (SRC / "ota.cpp").read_text(encoding="utf-8")
     web_js = (SRC / "java_script.h").read_text(encoding="utf-8")

@@ -62,7 +62,7 @@ struct PersistedSettingsPayloadV1 {
   char timezone[65];
   uint8_t displayEnabled;
   uint8_t displayBrightness;
-  uint8_t selectedMetric;
+  uint8_t legacySelectedMetric;
   uint8_t displayMode;
   uint16_t displayUpdateMs;
   uint16_t alternateSeconds;
@@ -89,7 +89,7 @@ struct PersistedSettingsPayloadV2 {
   char timezone[65];
   uint8_t displayEnabled;
   uint8_t displayBrightness;
-  uint8_t selectedMetric;
+  uint8_t legacySelectedMetric;
   uint8_t displayMode;
   uint16_t displayUpdateMs;
   uint16_t alternateSeconds;
@@ -118,7 +118,7 @@ struct PersistedSettingsPayloadV3 {
   char timezone[65];
   uint8_t displayEnabled;
   uint8_t displayBrightness;
-  uint8_t selectedMetric;
+  uint8_t legacySelectedMetric;
   uint8_t displayMode;
   uint16_t displayUpdateMs;
   uint16_t alternateSeconds;
@@ -150,7 +150,7 @@ struct PersistedSettingsPayloadV4 {
   char timezone[65];
   uint8_t displayEnabled;
   uint8_t displayBrightness;
-  uint8_t selectedMetric;
+  uint8_t legacySelectedMetric;
   uint8_t displayMode;
   uint32_t displayUpdateMs;
   uint16_t alternateSeconds;
@@ -181,7 +181,7 @@ struct PersistedSettingsPayloadV5 {
   char timezone[65];
   uint8_t displayEnabled;
   uint8_t displayBrightness;
-  uint8_t selectedMetric;
+  uint8_t legacySelectedMetric;
   uint8_t displayMode;
   uint32_t displayUpdateMs;
   uint16_t alternateSeconds;
@@ -272,9 +272,6 @@ void fromCommonPayload(const PersistedSettingsPayloadV1& source, AppSettings& ta
   target.displayEnabled = source.displayEnabled != 0;
   target.displayBrightness = source.displayBrightness;
 
-  if (source.selectedMetric <= static_cast<uint8_t>(MetricId::AirPm25)) {
-    target.selectedMetric = static_cast<MetricId>(source.selectedMetric);
-  }
   if (source.displayMode <= static_cast<uint8_t>(DisplayMode::Alternate)) {
     target.displayMode = static_cast<DisplayMode>(source.displayMode);
   }
@@ -324,9 +321,6 @@ void fromPayload(const PersistedSettingsPayloadV4& source, AppSettings& target) 
   copyText(target.timezone, source.timezone);
   target.displayEnabled = source.displayEnabled != 0;
   target.displayBrightness = source.displayBrightness;
-  if (source.selectedMetric <= static_cast<uint8_t>(MetricId::AirPm25)) {
-    target.selectedMetric = static_cast<MetricId>(source.selectedMetric);
-  }
   if (source.displayMode <= static_cast<uint8_t>(DisplayMode::Alternate)) {
     target.displayMode = static_cast<DisplayMode>(source.displayMode);
   }
@@ -358,7 +352,7 @@ void toPayload(const AppSettings& source, PersistedSettingsPayloadV5& target) {
   copyText(target.timezone, source.timezone);
   target.displayEnabled = source.displayEnabled ? 1U : 0U;
   target.displayBrightness = source.displayBrightness;
-  target.selectedMetric = static_cast<uint8_t>(source.selectedMetric);
+  target.legacySelectedMetric = 11U;  // Legacy slot: old air-temperature selection value.
   target.displayMode = static_cast<uint8_t>(source.displayMode);
   target.displayUpdateMs = source.displayUpdateMs;
   target.alternateSeconds = source.alternateSeconds;
@@ -638,40 +632,6 @@ bool SettingsManager::validateAndNormalize(AppSettings& s) {
 
 bool SettingsManager::isValidHost(const char* value) {
   return isValidHostValue(value);
-}
-
-const char* SettingsManager::metricToString(MetricId metric) {
-  switch (metric) {
-    case MetricId::SolarW: return "current_solar_production_w";
-    case MetricId::GridW: return "current_grid_power_w";
-    case MetricId::GridImportW: return "current_grid_import_w";
-    case MetricId::GridExportW: return "current_grid_export_w";
-    case MetricId::ConsumptionW: return "current_total_consumption_w";
-    case MetricId::DailySolarKwh: return "daily_solar_production_kwh";
-    case MetricId::DailyGridImportKwh: return "daily_grid_import_kwh";
-    case MetricId::DailyGridExportKwh: return "daily_grid_export_kwh";
-    case MetricId::TotalSolarKwh: return "total_solar_production_kwh";
-    case MetricId::TotalGridImportKwh: return "total_grid_import_kwh";
-    case MetricId::TotalGridExportKwh: return "total_grid_export_kwh";
-    case MetricId::AirTemperatureC: return "air_temperature_c";
-    case MetricId::AirHumidityPercent: return "air_humidity_percent";
-    case MetricId::AirDewPointC: return "air_dew_point_c";
-    case MetricId::AirPm10: return "air_pm10";
-    case MetricId::AirPm25: return "air_pm25";
-    default: return "current_grid_import_w";
-  }
-}
-
-bool SettingsManager::metricFromString(const char* value, MetricId& metric) {
-  if (!value) return false;
-  for (uint8_t i = 0; i <= static_cast<uint8_t>(MetricId::AirPm25); ++i) {
-    MetricId candidate = static_cast<MetricId>(i);
-    if (strcmp(value, metricToString(candidate)) == 0) {
-      metric = candidate;
-      return true;
-    }
-  }
-  return false;
 }
 
 const char* SettingsManager::modeToString(DisplayMode mode) {

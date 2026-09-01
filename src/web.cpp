@@ -215,7 +215,6 @@ void WebService::handleSettingsGet() {
   out += F(",\"brightness\":"); out += String(settings.displayBrightness);
   out += F(",\"clkGpio\":"); out += String(settings.displayClkGpio);
   out += F(",\"dioGpio\":"); out += String(settings.displayDioGpio);
-  out += F(",\"metric\":"); appendQuoted(out, SettingsManager::metricToString(settings.selectedMetric));
   out += F(",\"mode\":"); appendQuoted(out, SettingsManager::modeToString(settings.displayMode));
   out += F(",\"updateMs\":"); out += String(settings.displayUpdateMs);
   out += F(",\"alternateSeconds\":"); out += String(settings.alternateSeconds);
@@ -226,10 +225,8 @@ void WebService::handleSettingsGet() {
 
 void WebService::handleStateGet() {
   const ExternalValues& v = externalApiService.values();
-  const AirSensorValues& a = v.air;
-
   String out;
-  out.reserve(5000);
+  out.reserve(2200);
   out += F("{\"ok\":true,\"deviceName\":"); appendQuoted(out, settings.deviceName);
   out += F(",\"firmwareVersion\":"); appendQuoted(out, FW_VERSION);
 
@@ -273,52 +270,17 @@ void WebService::handleStateGet() {
   out += F(",\"brightness\":"); out += String(settings.displayBrightness);
   out += F(",\"clkGpio\":"); out += String(settings.displayClkGpio);
   out += F(",\"dioGpio\":"); out += String(settings.displayDioGpio);
-  out += F(",\"metric\":"); appendQuoted(out, SettingsManager::metricToString(settings.selectedMetric));
   out += F(",\"mode\":"); appendQuoted(out, SettingsManager::modeToString(settings.displayMode));
   out += F(",\"updateMs\":"); out += String(settings.displayUpdateMs);
   out += F(",\"alternateSeconds\":"); out += String(settings.alternateSeconds);
   out += F(",\"apiValueDisplayMs\":"); out += String(settings.apiValueDisplayMs);
   out += F(",\"rendered\":"); appendQuoted(out, displayService.lastRenderedText());
-  out += F(",\"scaledThousands\":"); out += displayService.lastScaledThousands() ? F("true") : F("false"); out += '}';
+  out += '}';
 
-  out += F(",\"external\":{\"timestampUtc\":"); appendQuoted(out, v.timestampUtc);
-  out += F(",\"localDate\":"); appendQuoted(out, v.localDate);
-  out += F(",\"timezone\":"); appendQuoted(out, v.remoteTimezone);
+  out += F(",\"external\":{\"timezone\":"); appendQuoted(out, v.remoteTimezone);
   out += F(",\"lastMeasurementAt\":"); appendQuoted(out, v.lastMeasurementAt);
-
-  out += F(",\"currentSolarProductionW\":"); appendNumeric(out, v.currentSolarProductionW);
-  out += F(",\"currentGridPowerW\":"); appendNumeric(out, v.currentGridPowerW);
-  out += F(",\"currentGridImportW\":"); appendNumeric(out, v.currentGridImportW);
-  out += F(",\"currentGridExportW\":"); appendNumeric(out, v.currentGridExportW);
-  out += F(",\"currentTotalConsumptionW\":"); appendNumeric(out, v.currentTotalConsumptionW);
-  out += F(",\"dailySolarProductionKwh\":"); appendNumeric(out, v.dailySolarProductionKwh);
-  out += F(",\"dailyGridImportKwh\":"); appendNumeric(out, v.dailyGridImportKwh);
-  out += F(",\"dailyGridExportKwh\":"); appendNumeric(out, v.dailyGridExportKwh);
-  out += F(",\"totalSolarProductionKwh\":"); appendNumeric(out, v.totalSolarProductionKwh);
-  out += F(",\"totalGridImportKwh\":"); appendNumeric(out, v.totalGridImportKwh);
-  out += F(",\"totalGridExportKwh\":"); appendNumeric(out, v.totalGridExportKwh);
-
-  out += F(",\"airSensor\":{\"present\":"); out += a.present ? F("true") : F("false");
-  out += F(",\"enabled\":"); out += a.enabled ? F("true") : F("false");
-  out += F(",\"configured\":"); out += a.configured ? F("true") : F("false");
-  out += F(",\"ok\":"); out += a.ok ? F("true") : F("false");
-  out += F(",\"cached\":"); out += a.cached ? F("true") : F("false");
-  out += F(",\"temperatureC\":"); appendNumeric(out, a.temperatureC);
-  out += F(",\"humidityPercent\":"); appendNumeric(out, a.humidityPercent);
-  out += F(",\"dewPointC\":"); appendNumeric(out, a.dewPointC);
-  out += F(",\"pressureHpa\":"); appendNumeric(out, a.pressureHpa);
-  out += F(",\"pressureSeaLevelHpa\":"); appendNumeric(out, a.pressureSeaLevelHpa);
-  out += F(",\"pm10\":"); appendNumeric(out, a.pm10);
-  out += F(",\"pm25\":"); appendNumeric(out, a.pm25);
-  out += F(",\"ageSeconds\":"); out += String(a.ageSeconds);
-  out += F(",\"softwareVersion\":"); appendQuoted(out, a.softwareVersion);
-  out += F(",\"lastSuccessAt\":"); appendQuoted(out, a.lastSuccessAt);
-  out += F(",\"lastError\":"); appendQuoted(out, a.lastError);
-  out += F(",\"weatherUndergroundLastOk\":"); out += a.weatherUndergroundLastOk ? F("true") : F("false");
-  out += F(",\"weatherUndergroundLastStatus\":"); out += String(a.weatherUndergroundLastStatus);
-  out += F(",\"weatherUndergroundLastResponse\":"); appendQuoted(out, a.weatherUndergroundLastResponse);
-  out += F(",\"weatherUndergroundLastAt\":"); appendQuoted(out, a.weatherUndergroundLastAt);
-  out += F("}}}");
+  out += F(",\"temperatureC\":"); appendNumeric(out, v.temperatureC);
+  out += F("}}");
 
   sendJson(200, out);
 }
@@ -407,18 +369,6 @@ void WebService::handleDisplaySettingsPost() {
     return;
   }
 
-  MetricId metric = settings.selectedMetric;
-  if (root["metric"].is<const char*>()) {
-    if (!SettingsManager::metricFromString(root["metric"].as<const char*>(), metric)) {
-      sendError(400, "Unknown display metric");
-      return;
-    }
-  } else if (mode != DisplayMode::Clock) {
-    sendError(400, "Missing or invalid field: metric");
-    return;
-  }
-
-  const MetricId previousMetric = settings.selectedMetric;
   const bool pinChanged = settings.displayClkGpio != static_cast<uint8_t>(clkGpio) ||
                           settings.displayDioGpio != static_cast<uint8_t>(dioGpio);
 
@@ -426,7 +376,6 @@ void WebService::handleDisplaySettingsPost() {
   next.displayBrightness = static_cast<uint8_t>(brightness);
   next.displayClkGpio = static_cast<uint8_t>(clkGpio);
   next.displayDioGpio = static_cast<uint8_t>(dioGpio);
-  next.selectedMetric = metric;
   next.displayMode = mode;
   next.displayUpdateMs = updateMs;
   next.alternateSeconds = static_cast<uint16_t>(alternateSeconds);
@@ -437,12 +386,6 @@ void WebService::handleDisplaySettingsPost() {
     return;
   }
   settings = next;
-
-  if (previousMetric != settings.selectedMetric) {
-    char message[96];
-    snprintf(message, sizeof(message), "Metric changed to %s", SettingsManager::metricToString(settings.selectedMetric));
-    appLog.info("DISPLAY", message);
-  }
 
   if (pinChanged) {
     char message[96];

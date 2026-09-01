@@ -14,8 +14,6 @@ class SettingsManager {
 
   static bool validateAndNormalize(AppSettings& settings);
   static bool isValidHost(const char* value);
-  static const char* metricToString(MetricId metric);
-  static bool metricFromString(const char* value, MetricId& metric);
   static const char* modeToString(DisplayMode mode);
   static bool modeFromString(const char* value, DisplayMode& mode);
 

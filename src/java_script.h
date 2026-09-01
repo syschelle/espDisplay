@@ -8,23 +8,19 @@ const char JAVA_SCRIPT[] PROGMEM = R"ED8266(
 
 const I18N = {
   de: {
-    "a11y.menu":"Menü öffnen/schließen","nav.status":"Status","nav.values":"Messwerte","nav.display":"Anzeige",
+    "a11y.menu":"Menü öffnen/schließen","nav.status":"Status","nav.display":"Anzeige",
     "nav.settings":"Systemeinstellungen","nav.logging":"Systemprotokoll","nav.ota":"OTA Update","nav.factory":"Werkseinstellungen",
-    "status.title":"Status","status.hint":"Lokaler Gerätestatus und zuletzt gecachte externe Messwerte.",
+    "status.title":"Status","status.hint":"Lokaler Gerätestatus und zuletzt gecachte externe Temperatur.",
     "status.currentDisplay":"Aktueller Anzeigewert","status.api":"API","status.server":"Server","status.lastRequest":"Letzter Abruf",
     "status.lastMeasurement":"Letzte Messung","status.dataAge":"Datenalter","status.http":"HTTP Status","status.error":"Letzter Fehler",
     "status.tm1637":"TM1637","status.displayMetric":"Anzeige","status.displayMode":"Modus","status.brightness":"Helligkeit",
     "status.clkPin":"CLK-Pin","status.dioPin":"DIO-Pin","status.rendered":"Gerenderter Wert","status.system":"System","status.localTime":"Lokale Zeit","status.ntp":"NTP",
     "status.lastNtp":"Letzte NTP-Synchronisierung","status.ip":"IP-Adresse","status.rssi":"WLAN RSSI","status.uptime":"Uptime",
     "status.heap":"Free Heap","status.version":"Firmware-Version",
-    "values.title":"Messwerte","values.current":"Aktuell","values.today":"Heute","values.total":"Gesamt","values.air":"Externe Luftdaten",
-    "metric.solarW":"Solarleistung","metric.gridW":"Netzleistung","metric.importW":"Netzbezug","metric.exportW":"Netzeinspeisung",
-    "metric.consumptionW":"Gesamtverbrauch","metric.dailySolar":"Solar","metric.dailyImport":"Netzbezug","metric.dailyExport":"Einspeisung",
-    "metric.totalSolar":"Solar","metric.totalImport":"Netzbezug","metric.totalExport":"Einspeisung","metric.temperature":"Temperatur",
-    "metric.humidity":"Luftfeuchte","metric.dewPoint":"Taupunkt","metric.pm10":"PM10","metric.pm25":"PM2.5","metric.pressure":"Luftdruck",
-    "display.title":"Anzeige","display.enabled":"Display aktiviert","display.metric":"Anzuzeigender Wert","display.brightness":"Helligkeit (0–7)",
-    "display.update":"Aktualisierung (ms)","display.mode":"Anzeigemodus","display.modeMetric":"Nur API-Wert","display.modeClock":"Nur Uhrzeit (API optional)",
-    "display.modeAlternate":"API-Wert und Uhrzeit im Wechsel","display.alternate":"Uhrzeit-Anzeigedauer (s)","display.apiValueDuration":"API-Wert-Anzeigedauer (ms)",
+    "metric.temperature":"Temperatur",
+    "display.title":"Anzeige","display.enabled":"Display aktiviert","display.brightness":"Helligkeit (0–7)",
+    "display.update":"Aktualisierung (ms)","display.mode":"Anzeigemodus","display.modeMetric":"Nur Temperatur","display.modeClock":"Nur Uhrzeit (API optional)",
+    "display.modeAlternate":"Temperatur und Uhrzeit im Wechsel","display.alternate":"Uhrzeit-Anzeigedauer (s)","display.apiValueDuration":"Temperatur-Anzeigedauer (ms)",
     "display.clkPin":"TM1637 CLK GPIO","display.dioPin":"TM1637 DIO GPIO","display.pinHint":"GPIO-Nummern direkt eingeben (0–5 oder 12–16). GPIO6–11 sind mit dem ESP8266-Flash verbunden und nicht zulässig. GPIO0, GPIO2 und GPIO15 beeinflussen den Bootmodus; GPIO1/GPIO3 werden für die serielle Schnittstelle verwendet. Pinänderungen werden nach dem Speichern durch einen Neustart aktiv.","display.saveRestart":"Speichern","display.pinSame":"CLK und DIO müssen unterschiedliche GPIOs verwenden.","display.pinInvalid":"GPIO muss eine ganze Zahl von 0 bis 16 sein; GPIO6 bis GPIO11 sind nicht zulässig.",
     "settings.title":"Systemeinstellungen","settings.deviceName":"Gerätename","settings.language":"Sprache","settings.theme":"Theme",
     "settings.themeLight":"Hell","settings.themeDark":"Dunkel","settings.wifi":"WLAN","settings.password":"Passwort",
@@ -37,7 +33,7 @@ const I18N = {
     "ota.manifest":"Manifest wird im Browser geladen","ota.firmware":"Firmware wird im Browser geladen","ota.verify":"Firmware wird geprüft",
     "ota.upload":"Firmware wird zum ESP übertragen","ota.browserError":"GitHub konnte im Browser nicht erreicht werden",
     "ota.browserHint":"Updateprüfung und Firmware-Download erfolgen im Browser; der ESP8266 erhält nur die geprüfte Firmware.",
-    "factory.title":"Werkseinstellungen","factory.warning":"Löscht WLAN-, API-, NTP- und Displayeinstellungen. Messwerte werden nicht dauerhaft gespeichert.",
+    "factory.title":"Werkseinstellungen","factory.warning":"Löscht WLAN-, API-, NTP- und Displayeinstellungen. Temperaturwerte werden nicht dauerhaft gespeichert.",
     "factory.button":"Werkseinstellungen wiederherstellen","factory.confirm1":"Wirklich alle gespeicherten Einstellungen löschen?",
     "factory.confirm2":"Letzte Bestätigung: Das Gerät startet danach mit Werkseinstellungen neu.",
     "state.connected":"Verbunden","state.requesting":"Abfrage läuft","state.unavailable":"Nicht erreichbar","state.notConfigured":"Nicht konfiguriert","state.stale":"Daten veraltet",
@@ -46,23 +42,19 @@ const I18N = {
     "state.restart":"Gespeichert. Neustart wird ausgeführt."
   },
   en: {
-    "a11y.menu":"Open/close menu","nav.status":"Status","nav.values":"Measurements","nav.display":"Display",
+    "a11y.menu":"Open/close menu","nav.status":"Status","nav.display":"Display",
     "nav.settings":"System Settings","nav.logging":"System Log","nav.ota":"OTA Update","nav.factory":"Factory Reset",
-    "status.title":"Status","status.hint":"Local device status and the latest cached external measurements.",
+    "status.title":"Status","status.hint":"Local device status and the latest cached external temperature.",
     "status.currentDisplay":"Current display value","status.api":"API","status.server":"Server","status.lastRequest":"Last request",
     "status.lastMeasurement":"Last measurement","status.dataAge":"Data age","status.http":"HTTP status","status.error":"Last error",
-    "status.tm1637":"TM1637","status.displayMetric":"Metric","status.displayMode":"Mode","status.brightness":"Brightness",
+    "status.tm1637":"TM1637","status.displayMetric":"Display","status.displayMode":"Mode","status.brightness":"Brightness",
     "status.clkPin":"CLK pin","status.dioPin":"DIO pin","status.rendered":"Rendered value","status.system":"System","status.localTime":"Local time","status.ntp":"NTP",
     "status.lastNtp":"Last NTP synchronization","status.ip":"IP address","status.rssi":"Wi-Fi RSSI","status.uptime":"Uptime",
     "status.heap":"Free heap","status.version":"Firmware version",
-    "values.title":"Measurements","values.current":"Current","values.today":"Today","values.total":"Total","values.air":"External air data",
-    "metric.solarW":"Solar production","metric.gridW":"Grid power","metric.importW":"Grid import","metric.exportW":"Grid export",
-    "metric.consumptionW":"Total consumption","metric.dailySolar":"Solar","metric.dailyImport":"Grid import","metric.dailyExport":"Grid export",
-    "metric.totalSolar":"Solar","metric.totalImport":"Grid import","metric.totalExport":"Grid export","metric.temperature":"Temperature",
-    "metric.humidity":"Humidity","metric.dewPoint":"Dew point","metric.pm10":"PM10","metric.pm25":"PM2.5","metric.pressure":"Pressure",
-    "display.title":"Display","display.enabled":"Display enabled","display.metric":"Displayed metric","display.brightness":"Brightness (0–7)",
-    "display.update":"Refresh interval (ms)","display.mode":"Display mode","display.modeMetric":"API value only","display.modeClock":"Clock only (API optional)",
-    "display.modeAlternate":"Alternate API value and clock","display.alternate":"Clock display duration (s)","display.apiValueDuration":"API value display duration (ms)",
+    "metric.temperature":"Temperature",
+    "display.title":"Display","display.enabled":"Display enabled","display.brightness":"Brightness (0–7)",
+    "display.update":"Refresh interval (ms)","display.mode":"Display mode","display.modeMetric":"Temperature only","display.modeClock":"Clock only (API optional)",
+    "display.modeAlternate":"Alternate temperature and clock","display.alternate":"Clock display duration (s)","display.apiValueDuration":"Temperature display duration (ms)",
     "display.clkPin":"TM1637 CLK GPIO","display.dioPin":"TM1637 DIO GPIO","display.pinHint":"Enter GPIO numbers directly (0–5 or 12–16). GPIO6–11 are connected to ESP8266 flash and are not allowed. GPIO0, GPIO2 and GPIO15 affect the boot mode; GPIO1/GPIO3 are used by the serial interface. Pin changes become active after saving and restarting.","display.saveRestart":"Save","display.pinSame":"CLK and DIO must use different GPIOs.","display.pinInvalid":"GPIO must be a whole number from 0 to 16; GPIO6 through GPIO11 are not allowed.",
     "settings.title":"System Settings","settings.deviceName":"Device name","settings.language":"Language","settings.theme":"Theme",
     "settings.themeLight":"Light","settings.themeDark":"Dark","settings.wifi":"Wi-Fi","settings.password":"Password",
@@ -75,7 +67,7 @@ const I18N = {
     "ota.manifest":"Loading manifest in browser","ota.firmware":"Loading firmware in browser","ota.verify":"Verifying firmware",
     "ota.upload":"Uploading firmware to ESP","ota.browserError":"GitHub could not be reached by the browser",
     "ota.browserHint":"The browser checks and downloads the update; the ESP8266 receives only the verified firmware.",
-    "factory.title":"Factory Reset","factory.warning":"Deletes Wi-Fi, API, NTP and display settings. Measurements are never stored persistently.",
+    "factory.title":"Factory Reset","factory.warning":"Deletes Wi-Fi, API, NTP and display settings. Temperature values are never stored persistently.",
     "factory.button":"Restore factory settings","factory.confirm1":"Really delete all stored settings?",
     "factory.confirm2":"Final confirmation: the device will restart with factory settings.",
     "state.connected":"Connected","state.requesting":"Request in progress","state.unavailable":"Unavailable","state.notConfigured":"Not configured","state.stale":"Data stale",
@@ -91,15 +83,6 @@ const DISPLAY_PINS = [
   [16,"D0 / GPIO16",false],[0,"D3 / GPIO0",true],[2,"D4 / GPIO2",true],[15,"D8 / GPIO15",true],[3,"RX / GPIO3",true],[1,"TX / GPIO1",true]
 ];
 
-const METRICS = [
-  ["current_solar_production_w","metric.solarW"],["current_grid_power_w","metric.gridW"],
-  ["current_grid_import_w","metric.importW"],["current_grid_export_w","metric.exportW"],
-  ["current_total_consumption_w","metric.consumptionW"],["daily_solar_production_kwh","metric.dailySolar"],
-  ["daily_grid_import_kwh","metric.dailyImport"],["daily_grid_export_kwh","metric.dailyExport"],
-  ["total_solar_production_kwh","metric.totalSolar"],["total_grid_import_kwh","metric.totalImport"],
-  ["total_grid_export_kwh","metric.totalExport"],["air_temperature_c","metric.temperature"],
-  ["air_humidity_percent","metric.humidity"],["air_dew_point_c","metric.dewPoint"],["air_pm10","metric.pm10"],["air_pm25","metric.pm25"]
-];
 
 const OTA_RAW_BASE = "https://raw.githubusercontent.com/syschelle/espDisplay/ota/";
 const OTA_API_BASE = "https://api.github.com/repos/syschelle/espDisplay/contents/";
@@ -120,7 +103,6 @@ function applyTranslations(){
     const key=el.dataset.i18n, value=t(key), attr=el.dataset.i18nAttr;
     if(attr) el.setAttribute(attr,value); else el.textContent=value;
   });
-  fillMetricSelect();
   if(state) renderState();
 }
 function applyTheme(value){ document.documentElement.setAttribute("data-theme", value === "dark" ? "dark" : "light"); }
@@ -298,60 +280,21 @@ function fmtUptime(seconds){
   const d=Math.floor(seconds/86400),h=Math.floor((seconds%86400)/3600),m=Math.floor((seconds%3600)/60);
   return d?`${d} d ${h} h`:h?`${h} h ${m} min`:`${m} min`;
 }
-function metricLabel(id){
-  const item=METRICS.find(([key])=>key===id);
-  return item?t(item[1]):id||"--";
-}
 function modeLabel(mode){
   return mode==="clock"?t("display.modeClock"):mode==="alternate"?t("display.modeAlternate"):t("display.modeMetric");
 }
-function metricUnit(id){
-  if(id.endsWith("_w")) return "W";
-  if(id.includes("kwh")) return "kWh";
-  if(id==="air_temperature_c"||id==="air_dew_point_c") return "°C";
-  if(id==="air_humidity_percent") return "%";
-  if(id==="air_pm10"||id==="air_pm25") return "µg/m³";
-  return "";
-}
-function externalMetric(id){
-  const e=state?.external||{},a=e.airSensor||{};
-  const map={
-    current_solar_production_w:e.currentSolarProductionW,current_grid_power_w:e.currentGridPowerW,
-    current_grid_import_w:e.currentGridImportW,current_grid_export_w:e.currentGridExportW,
-    current_total_consumption_w:e.currentTotalConsumptionW,daily_solar_production_kwh:e.dailySolarProductionKwh,
-    daily_grid_import_kwh:e.dailyGridImportKwh,daily_grid_export_kwh:e.dailyGridExportKwh,
-    total_solar_production_kwh:e.totalSolarProductionKwh,total_grid_import_kwh:e.totalGridImportKwh,
-    total_grid_export_kwh:e.totalGridExportKwh,air_temperature_c:a.temperatureC,air_humidity_percent:a.humidityPercent,
-    air_dew_point_c:a.dewPointC,air_pm10:a.pm10,air_pm25:a.pm25
-  };
-  return map[id];
-}
-
 function pinLabel(gpio){
   const item=DISPLAY_PINS.find(([id])=>id===Number(gpio));
   return item?item[1]:`GPIO${gpio}`;
 }
 
 
-function fillMetricSelect(){
-  const select=$("selectedMetric"); if(!select) return;
-  const selected=select.value||settings?.display.metric||"current_grid_import_w";
-  select.innerHTML="";
-  METRICS.forEach(([id,key])=>{
-    const option=document.createElement("option"); option.value=id; option.textContent=t(key); select.appendChild(option);
-  });
-  select.value=selected;
-}
-
 function updateDisplayModeUi(){
   const mode=$("displayMode")?.value||"metric";
-  const metricGroup=$("metricSettingGroup");
   const alternateGroup=$("alternateSettingGroup");
   const apiValueTimingGroup=$("apiValueTimingGroup");
-  if(metricGroup) metricGroup.classList.toggle("hidden",mode==="clock");
   if(alternateGroup) alternateGroup.classList.toggle("hidden",mode!=="alternate");
   if(apiValueTimingGroup) apiValueTimingGroup.classList.toggle("hidden",mode!=="alternate");
-  if($("selectedMetric")) $("selectedMetric").disabled=mode==="clock";
   if($("alternateSeconds")) $("alternateSeconds").disabled=mode!=="alternate";
   if($("apiValueDisplayMs")) $("apiValueDisplayMs").disabled=mode!=="alternate";
 }
@@ -394,8 +337,6 @@ function populateSettings(){
   $("displayMode").value=settings.display.mode;
   $("alternateSeconds").value=settings.display.alternateSeconds;
   $("apiValueDisplayMs").value=settings.display.apiValueDisplayMs||1000;
-  fillMetricSelect();
-  $("selectedMetric").value=settings.display.metric;
   updateDisplayModeUi();
   lang=settings.language==="en"?"en":"de";
   applyTheme(settings.theme);
@@ -432,12 +373,12 @@ function renderState(){
 
   const d=state.display;
   badge("displayBadge",d.enabled?t("state.enabled"):t("state.disabled"),d.enabled?"good":"neutral");
-  text("displayMetric",d.mode==="clock"?t("state.clock"):metricLabel(d.metric));
+  text("displayMetric",d.mode==="clock"?t("state.clock"):t("metric.temperature"));
   text("displayModeStatus",modeLabel(d.mode));
   text("displayBrightnessStatus",`${d.brightness}/7`);
   text("displayClkStatus",pinLabel(d.clkGpio));
   text("displayDioStatus",pinLabel(d.dioGpio));
-  text("displayRendered",d.rendered+(d.scaledThousands?" ×1000":""));
+  text("displayRendered",d.rendered);
 
   if(d.mode==="clock"){
     const clockText=(state.ntp.localTime||"").split(" ")[1]||"----";
@@ -445,24 +386,12 @@ function renderState(){
     badge("heroFreshness",state.ntp.synchronized?t("state.synced"):t("state.notSynced"),state.ntp.synchronized?"good":"warn");
     badge("overallBadge",state.wifi.connected&&state.ntp.synchronized?t("state.ok"):t("state.unavailable"),state.wifi.connected&&state.ntp.synchronized?"good":"warn");
   }else{
-    const selected=externalMetric(d.metric);
-    const hero=typeof selected==="number"&&Number.isFinite(selected)?fmtNumber(selected,metricUnit(d.metric),d.metric.endsWith("_w")?0:2):"----";
-    text("heroValue",hero); text("heroMetric",metricLabel(d.metric));
+    const temperature=state.external?.temperatureC;
+    const hero=typeof temperature==="number"&&Number.isFinite(temperature)?fmtNumber(temperature,"°C",1):"----";
+    text("heroValue",hero); text("heroMetric",t("metric.temperature"));
     badge("heroFreshness",!api.valid?t("state.noData"):api.stale?t("state.stale"):t("state.current"),!api.valid?"neutral":api.stale?"warn":"good");
     badge("overallBadge",state.wifi.connected&&api.connected?t("state.ok"):t("state.unavailable"),state.wifi.connected&&api.connected?"good":"warn");
   }
-
-  const e=state.external,a=e.airSensor||{};
-  text("mSolarW",fmtNumber(e.currentSolarProductionW,"W",0)); text("mGridW",fmtNumber(e.currentGridPowerW,"W",0));
-  text("mImportW",fmtNumber(e.currentGridImportW,"W",0)); text("mExportW",fmtNumber(e.currentGridExportW,"W",0));
-  text("mConsumptionW",fmtNumber(e.currentTotalConsumptionW,"W",0));
-  text("mDailySolar",fmtNumber(e.dailySolarProductionKwh,"kWh",2)); text("mDailyImport",fmtNumber(e.dailyGridImportKwh,"kWh",2));
-  text("mDailyExport",fmtNumber(e.dailyGridExportKwh,"kWh",2)); text("mTotalSolar",fmtNumber(e.totalSolarProductionKwh,"kWh",2));
-  text("mTotalImport",fmtNumber(e.totalGridImportKwh,"kWh",2)); text("mTotalExport",fmtNumber(e.totalGridExportKwh,"kWh",2));
-  $("airSection").classList.toggle("hidden",!a.present);
-  text("mAirTemp",fmtNumber(a.temperatureC,"°C",1)); text("mAirHumidity",fmtNumber(a.humidityPercent,"%",1));
-  text("mDewPoint",fmtNumber(a.dewPointC,"°C",1)); text("mPm10",fmtNumber(a.pm10,"µg/m³",2));
-  text("mPm25",fmtNumber(a.pm25,"µg/m³",2)); text("mPressure",fmtNumber(a.pressureHpa,"hPa",1));
 }
 
 async function loadSettings(){ settings=await apiFetch("/api/settings"); populateSettings(); }
@@ -479,7 +408,7 @@ $("displayForm").addEventListener("submit",async e=>{
   try{
     const body={
       enabled:$("displayEnabled").checked,brightness:Number($("displayBrightness").value),
-      clkGpio:Number($("displayClkGpio").value),dioGpio:Number($("displayDioGpio").value),metric:$("selectedMetric").value||settings?.display.metric||"current_grid_import_w",
+      clkGpio:Number($("displayClkGpio").value),dioGpio:Number($("displayDioGpio").value),
       mode:$("displayMode").value,updateMs:Number($("displayUpdateMs").value),alternateSeconds:Number($("alternateSeconds").value),apiValueDisplayMs:Number($("apiValueDisplayMs").value)
     };
     const validPin=gpio=>Number.isInteger(gpio)&&gpio>=0&&gpio<=16&&!(gpio>=6&&gpio<=11);

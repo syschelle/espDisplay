@@ -35,8 +35,8 @@ void DisplayService::begin(const AppSettings& cfg) {
   lastClockPollMs_ = 0;
   lastClockSecond_ = -1;
   lastRenderedWasClock_ = false;
-  lastRenderedWasMetric_ = false;
-  lastMetricStaleWarning_ = false;
+  lastRenderedWasTemperature_ = false;
+  lastTemperatureStaleWarning_ = false;
   alternateCycleStartedMs_ = 0;
   alternateCycleActive_ = false;
 }
@@ -60,8 +60,8 @@ void DisplayService::applySettings(const AppSettings& cfg) {
   lastClockSecond_ = -1;
   lastRenderedWasClock_ = false;
   lastRenderedWasConnecting_ = false;
-  lastRenderedWasMetric_ = false;
-  lastMetricStaleWarning_ = false;
+  lastRenderedWasTemperature_ = false;
+  lastTemperatureStaleWarning_ = false;
   alternateCycleStartedMs_ = 0;
   alternateCycleActive_ = false;
 }
@@ -93,16 +93,15 @@ void DisplayService::tick(const AppSettings& cfg, const ExternalValues& values) 
   lastRenderedWasConnecting_ = false;
 
   const uint32_t nowMs = millis();
-  const NumericValue* selectedValue = metricValue(cfg.selectedMetric, values);
-  const bool selectedMetricAvailable = values.valid && selectedValue && selectedValue->valid &&
-                                       isfinite(selectedValue->value);
+  const bool temperatureAvailable = values.valid && values.temperatureC.valid &&
+                                    isfinite(values.temperatureC.value);
 
   bool showClock = cfg.displayMode == DisplayMode::Clock;
   if (cfg.displayMode == DisplayMode::Alternate) {
     // After a reboot there is intentionally no persisted measurement cache.
-    // Until the selected metric has been received successfully at least once,
+    // Until the temperature has been received successfully at least once,
     // keep showing the clock and do not enter an empty API-value phase.
-    if (!selectedMetricAvailable) {
+    if (!temperatureAvailable) {
       showClock = true;
       alternateCycleActive_ = false;
     } else {
@@ -117,14 +116,14 @@ void DisplayService::tick(const AppSettings& cfg, const ExternalValues& values) 
           static_cast<uint32_t>(nowMs - alternateCycleStartedMs_),
           cfg.alternateSeconds,
           cfg.apiValueDisplayMs,
-          selectedMetricAvailable);
+          temperatureAvailable);
     }
   } else {
     alternateCycleActive_ = false;
   }
 
   // Clock rendering is deliberately independent from displayUpdateMs. A user may
-  // choose a slow metric refresh (for example 4000 ms), but the center colon
+  // choose a slow temperature refresh (for example 4000 ms), but the center colon
   // still has to toggle exactly once per second while the clock is visible.
   if (showClock) {
     if (lastClockPollMs_ != 0 &&
@@ -152,13 +151,13 @@ void DisplayService::tick(const AppSettings& cfg, const ExternalValues& values) 
     renderClock(now);
     lastClockSecond_ = static_cast<int8_t>(now.tm_sec);
     lastRenderedWasClock_ = true;
-    lastRenderedWasMetric_ = false;
+    lastRenderedWasTemperature_ = false;
     lastUpdateMs_ = nowMs;
     return;
   }
 
   if (lastRenderedWasClock_) {
-    // Change back to the metric immediately when an alternate clock phase ends.
+    // Change back to the temperature immediately when an alternate clock phase ends.
     lastUpdateMs_ = 0;
   }
   lastRenderedWasClock_ = false;
@@ -169,58 +168,28 @@ void DisplayService::tick(const AppSettings& cfg, const ExternalValues& values) 
                             apiDataStaleForDisplay(
                                 static_cast<uint32_t>(nowMs - values.lastSuccessMs),
                                 cfg.apiPollSeconds);
-  const bool staleStateChanged = lastRenderedWasMetric_ &&
-                                 lastMetricStaleWarning_ != staleWarning;
+  const bool staleStateChanged = lastRenderedWasTemperature_ &&
+                                 lastTemperatureStaleWarning_ != staleWarning;
 
   if (!staleStateChanged && lastUpdateMs_ != 0 &&
       static_cast<uint32_t>(millis() - lastUpdateMs_) < cfg.displayUpdateMs) {
     return;
   }
   lastUpdateMs_ = millis();
-  renderMetric(cfg.selectedMetric, values, staleWarning);
+  renderTemperature(values, staleWarning);
 }
 
-const NumericValue* DisplayService::metricValue(
-    MetricId metric,
-    const ExternalValues& values) const {
-  switch (metric) {
-    case MetricId::SolarW: return &values.currentSolarProductionW;
-    case MetricId::GridW: return &values.currentGridPowerW;
-    case MetricId::GridImportW: return &values.currentGridImportW;
-    case MetricId::GridExportW: return &values.currentGridExportW;
-    case MetricId::ConsumptionW: return &values.currentTotalConsumptionW;
-    case MetricId::DailySolarKwh: return &values.dailySolarProductionKwh;
-    case MetricId::DailyGridImportKwh: return &values.dailyGridImportKwh;
-    case MetricId::DailyGridExportKwh: return &values.dailyGridExportKwh;
-    case MetricId::TotalSolarKwh: return &values.totalSolarProductionKwh;
-    case MetricId::TotalGridImportKwh: return &values.totalGridImportKwh;
-    case MetricId::TotalGridExportKwh: return &values.totalGridExportKwh;
-    case MetricId::AirTemperatureC: return &values.air.temperatureC;
-    case MetricId::AirHumidityPercent: return &values.air.humidityPercent;
-    case MetricId::AirDewPointC: return &values.air.dewPointC;
-    case MetricId::AirPm10: return &values.air.pm10;
-    case MetricId::AirPm25: return &values.air.pm25;
-    default: return nullptr;
-  }
-}
-
-void DisplayService::renderMetric(MetricId metric, const ExternalValues& values, bool staleWarning) {
-  const NumericValue* value = metricValue(metric, values);
-  if (!value) {
-    renderError();
-    return;
-  }
-
+void DisplayService::renderTemperature(const ExternalValues& values, bool staleWarning) {
   DisplayFrame frame;
-  if (!formatMetricFrame(metric, *value, frame)) {
+  if (!formatTemperatureFrame(values.temperatureC, frame)) {
     renderError();
     return;
   }
 
   renderFrame(frame, staleWarning);
   rememberFrame(frame);
-  lastRenderedWasMetric_ = true;
-  lastMetricStaleWarning_ = staleWarning;
+  lastRenderedWasTemperature_ = true;
+  lastTemperatureStaleWarning_ = staleWarning;
 }
 
 void DisplayService::renderClock(const struct tm& now) {
@@ -251,7 +220,6 @@ void DisplayService::renderClock(const struct tm& now) {
 
   // The web status mirrors the no-leading-zero clock representation.
   snprintf(lastRenderedText_, sizeof(lastRenderedText_), "%d:%02d", now.tm_hour, now.tm_min);
-  lastScaledThousands_ = false;
 }
 
 void DisplayService::renderFrame(const DisplayFrame& frame, bool staleWarning) {
@@ -294,8 +262,7 @@ void DisplayService::renderConnecting() {
   connectingSegments(segments);
   display_->setSegments(segments);
   copyText(lastRenderedText_, "Conn");
-  lastScaledThousands_ = false;
-  lastRenderedWasConnecting_ = true;
+    lastRenderedWasConnecting_ = true;
 }
 
 void DisplayService::renderError() {
@@ -303,8 +270,7 @@ void DisplayService::renderError() {
   const uint8_t dash[4] = {0x40, 0x40, 0x40, 0x40};
   display_->setSegments(dash);
   copyText(lastRenderedText_, "----");
-  lastScaledThousands_ = false;
-  lastRenderedWasMetric_ = false;
+    lastRenderedWasTemperature_ = false;
 }
 
 void DisplayService::rememberFrame(const DisplayFrame& frame) {
@@ -322,5 +288,4 @@ void DisplayService::rememberFrame(const DisplayFrame& frame) {
     lastRenderedText_[out++] = static_cast<char>(0xB0);
   }
   lastRenderedText_[out] = '\0';
-  lastScaledThousands_ = frame.scaledThousands;
 }
