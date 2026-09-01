@@ -52,7 +52,7 @@ Configurable settings:
 
 ### Consumed API data
 
-Starting with v0.1.20, espDisplay intentionally consumes only:
+espDisplay intentionally consumes only:
 
 ```json
 {
@@ -224,3 +224,14 @@ Generated OTA files:
 ## License
 
 Apache License 2.0
+
+## Repository release documents
+
+The repository keeps only the release documents for the current source version:
+
+- `BUILD_STATUS.md`
+- `RELEASE_NOTES.md`
+
+Historical `BUILD_STATUS_v*.md` and `RELEASE_NOTES_v*.md` files are intentionally not kept in the repository. Published GitHub Releases remain the historical release record.
+
+On the Status page, the API **Server** field shows only `host:port`. The fixed `/api/current-values` path is omitted from the visible value to keep the status card compact and single-line. If a long host name is shortened with ellipsis, the complete `host:port` value remains available as a hover tooltip.

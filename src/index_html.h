@@ -58,7 +58,7 @@ const char INDEX_HTML[] PROGMEM = R"ED8266(
           <article class="card">
             <div class="card-head"><h2 data-i18n="status.api">API</h2><span class="badge neutral" id="apiBadge">--</span></div>
             <dl class="kv">
-              <div><dt data-i18n="status.server">Server</dt><dd id="apiServer">--</dd></div>
+              <div class="server-row"><dt data-i18n="status.server">Server</dt><dd id="apiServer" class="single-line-value">--</dd></div>
               <div><dt data-i18n="status.lastRequest">Letzter Abruf</dt><dd id="apiLastRequest">--</dd></div>
               <div><dt data-i18n="status.lastMeasurement">Letzte Messung</dt><dd id="apiLastMeasurement">--</dd></div>
               <div><dt data-i18n="status.dataAge">Datenalter</dt><dd id="apiDataAge">--</dd></div>

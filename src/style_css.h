@@ -58,6 +58,8 @@ h2{font-size:1.05rem;margin:1.4rem 0 .75rem}
 .kv>div:last-child{border-bottom:0}
 .kv dt{opacity:.65}
 .kv dd{margin:0;text-align:right;overflow-wrap:anywhere}
+.kv>div.server-row{grid-template-columns:minmax(90px,.7fr) minmax(0,1.8fr)}
+.single-line-value{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;overflow-wrap:normal!important;min-width:0}
 .form-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px}
 .form-group{margin-bottom:14px}
 .form-group.wide{grid-column:span 2}

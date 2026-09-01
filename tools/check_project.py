@@ -74,6 +74,9 @@ def test_web_assets() -> None:
     assert 'id="selectedMetric"' not in html and "selectedMetric" not in js, "metric selection must be removed"
     assert "https://raw.githubusercontent.com/syschelle/espDisplay/ota/" in js, "browser-assisted OTA must use the pinned ota branch"
     assert 'apiFetch("/api/state")' in js
+    assert 'id="apiServer" class="single-line-value"' in html, "API server value must stay single-line"
+    assert 'api.server' in js and 'api.endpoint' not in js, "Status UI must show compact host:port instead of the full fixed endpoint"
+    assert '.single-line-value{white-space:nowrap' in css, "single-line status value CSS missing"
     assert "setInterval(loadState,5000)" in js
     assert "function fmtDateTime(value,timeZone)" in js
     assert 'fmtDateTime(state.external.lastMeasurementAt,state.external.timezone)' in js
@@ -221,6 +224,7 @@ def test_architecture_guards() -> None:
     assert 'root["apiPort"]' in web and 'settings.apiPort' in web
     assert 'externalApiService.requestInProgress()' in web
     assert r'\"temperatureC\"' in web
+    assert r'\"server\"' in web and r'\"endpoint\"' not in web, "state JSON must expose compact API server only"
     for removed in ["currentSolarProductionW", "currentGridPowerW", "humidityPercent", "dewPointC", "pm10", "pm25", "airSensor"]:
         assert removed not in web, f"unused web state measurement remains: {removed}"
     assert "restartScheduled" in web
@@ -259,6 +263,13 @@ def test_architecture_guards() -> None:
     assert "FormData" in web_js and "XMLHttpRequest" in web_js and "/api/ota/upload?version=" in web_js and "&token=" in web_js, "browser must upload firmware locally with streaming multipart form data and the one-time session token"
     assert "otaUpdateActive" in web_js, "frontend must pause state polling while OTA flashing is running"
     assert "Prepare release and OTA assets" in workflow
+    assert 'NOTES_FILE="RELEASE_NOTES.md"' in workflow, "release workflow must use the canonical current release notes file"
+    assert "RELEASE_NOTES_${GITHUB_REF_NAME}.md" not in workflow
+
+    versioned_docs = sorted([p.name for p in ROOT.glob("BUILD_STATUS_v*.md")] + [p.name for p in ROOT.glob("RELEASE_NOTES_v*.md")])
+    assert not versioned_docs, f"historical versioned release docs must not remain in repo: {versioned_docs}"
+    assert (ROOT / "BUILD_STATUS.md").is_file(), "current BUILD_STATUS.md missing"
+    assert (ROOT / "RELEASE_NOTES.md").is_file(), "current RELEASE_NOTES.md missing"
     assert '"version": "$GITHUB_REF_NAME"' in workflow
     assert '"firmware": "firmware.bin"' in workflow
     assert "Publish redirect-free OTA channel" in workflow

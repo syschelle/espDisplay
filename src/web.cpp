@@ -251,14 +251,12 @@ void WebService::handleStateGet() {
   out += F(",\"requestInProgress\":"); out += externalApiService.requestInProgress() ? F("true") : F("false");
   out += F(",\"valid\":"); out += v.valid ? F("true") : F("false");
   out += F(",\"stale\":"); out += v.stale ? F("true") : F("false");
-  out += F(",\"endpoint\":");
+  out += F(",\"server\":");
   if (settings.apiHost[0]) {
-    String endpoint = F("http://");
-    endpoint += settings.apiHost;
-    endpoint += ':';
-    endpoint += String(settings.apiPort);
-    endpoint += EXTERNAL_API_PATH;
-    appendQuoted(out, endpoint.c_str());
+    String serverAddress = settings.apiHost;
+    serverAddress += ':';
+    serverAddress += String(settings.apiPort);
+    appendQuoted(out, serverAddress.c_str());
   } else appendQuoted(out, "");
   out += F(",\"httpStatus\":"); out += String(v.lastHttpStatus);
   out += F(",\"lastError\":"); appendQuoted(out, v.lastError);

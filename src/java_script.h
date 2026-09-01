@@ -364,7 +364,10 @@ function renderState(){
   const api=state.api;
   const configured=api.configured;
   badge("apiBadge",!configured?t("state.notConfigured"):api.requestInProgress?t("state.requesting"):api.connected?t("state.connected"):t("state.unavailable"),!configured?"neutral":api.requestInProgress?"neutral":api.connected?"good":"bad");
-  text("apiServer",configured?api.endpoint:"--");
+  const apiServerEl=$("apiServer");
+  const apiServerText=configured&&api.server?api.server:"--";
+  text("apiServer",apiServerText);
+  apiServerEl.title=configured&&api.server?api.server:"";
   text("apiLastRequest",api.lastAttemptAgeSeconds==null?"--":fmtAge(api.lastAttemptAgeSeconds));
   text("apiLastMeasurement",fmtDateTime(state.external.lastMeasurementAt,state.external.timezone));
   text("apiDataAge",api.dataAgeSeconds==null?"--":fmtAge(api.dataAgeSeconds));
