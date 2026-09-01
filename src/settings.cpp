@@ -134,9 +134,41 @@ struct PersistedSettingsRecordV3 {
   PersistedSettingsPayloadV3 payload;
   uint32_t crc32;
 };
+
+struct PersistedSettingsPayloadV4 {
+  // v0.1.16 widens displayUpdateMs to 32 bits so intervals up to 200 seconds
+  // can be represented without overflow. Older payload layouts remain frozen
+  // above and are migrated explicitly when loaded.
+  char deviceName[33];
+  char language[3];
+  char theme[6];
+  char wifiSsid[33];
+  char wifiPassword[65];
+  char apiHost[65];
+  uint16_t apiPollSeconds;
+  char ntpServer[65];
+  char timezone[65];
+  uint8_t displayEnabled;
+  uint8_t displayBrightness;
+  uint8_t selectedMetric;
+  uint8_t displayMode;
+  uint32_t displayUpdateMs;
+  uint16_t alternateSeconds;
+  uint8_t displayClkGpio;
+  uint8_t displayDioGpio;
+  uint16_t apiPort;
+};
+
+struct PersistedSettingsRecordV4 {
+  uint32_t magic;
+  uint16_t schema;
+  uint16_t payloadSize;
+  PersistedSettingsPayloadV4 payload;
+  uint32_t crc32;
+};
 #pragma pack(pop)
 
-static_assert(sizeof(PersistedSettingsRecordV3) <= EEPROM_SETTINGS_BYTES,
+static_assert(sizeof(PersistedSettingsRecordV4) <= EEPROM_SETTINGS_BYTES,
               "EEPROM settings record exceeds configured storage size");
 
 uint32_t crc32Update(uint32_t crc, const uint8_t* data, size_t length) {
@@ -169,15 +201,22 @@ bool recordValid(const PersistedSettingsRecordV1& record) {
 
 bool recordValid(const PersistedSettingsRecordV2& record) {
   if (record.magic != EEPROM_SETTINGS_MAGIC) return false;
-  if (record.schema != PREVIOUS_SETTINGS_SCHEMA_VERSION) return false;
+  if (record.schema != DISPLAY_GPIO_SETTINGS_SCHEMA_VERSION) return false;
   if (record.payloadSize != sizeof(PersistedSettingsPayloadV2)) return false;
   return record.crc32 == payloadCrc(record.schema, record.payloadSize, record.payload);
 }
 
 bool recordValid(const PersistedSettingsRecordV3& record) {
   if (record.magic != EEPROM_SETTINGS_MAGIC) return false;
-  if (record.schema != SETTINGS_SCHEMA_VERSION) return false;
+  if (record.schema != PREVIOUS_SETTINGS_SCHEMA_VERSION) return false;
   if (record.payloadSize != sizeof(PersistedSettingsPayloadV3)) return false;
+  return record.crc32 == payloadCrc(record.schema, record.payloadSize, record.payload);
+}
+
+bool recordValid(const PersistedSettingsRecordV4& record) {
+  if (record.magic != EEPROM_SETTINGS_MAGIC) return false;
+  if (record.schema != SETTINGS_SCHEMA_VERSION) return false;
+  if (record.payloadSize != sizeof(PersistedSettingsPayloadV4)) return false;
   return record.crc32 == payloadCrc(record.schema, record.payloadSize, record.payload);
 }
 
@@ -234,7 +273,32 @@ void fromPayload(const PersistedSettingsPayloadV3& source, AppSettings& target) 
   target.apiPort = source.apiPort;
 }
 
-void toPayload(const AppSettings& source, PersistedSettingsPayloadV3& target) {
+void fromPayload(const PersistedSettingsPayloadV4& source, AppSettings& target) {
+  copyText(target.deviceName, source.deviceName);
+  copyText(target.language, source.language);
+  copyText(target.theme, source.theme);
+  copyText(target.wifiSsid, source.wifiSsid);
+  copyText(target.wifiPassword, source.wifiPassword);
+  copyText(target.apiHost, source.apiHost);
+  target.apiPollSeconds = source.apiPollSeconds;
+  copyText(target.ntpServer, source.ntpServer);
+  copyText(target.timezone, source.timezone);
+  target.displayEnabled = source.displayEnabled != 0;
+  target.displayBrightness = source.displayBrightness;
+  if (source.selectedMetric <= static_cast<uint8_t>(MetricId::AirPm25)) {
+    target.selectedMetric = static_cast<MetricId>(source.selectedMetric);
+  }
+  if (source.displayMode <= static_cast<uint8_t>(DisplayMode::Alternate)) {
+    target.displayMode = static_cast<DisplayMode>(source.displayMode);
+  }
+  target.displayUpdateMs = source.displayUpdateMs;
+  target.alternateSeconds = source.alternateSeconds;
+  target.displayClkGpio = source.displayClkGpio;
+  target.displayDioGpio = source.displayDioGpio;
+  target.apiPort = source.apiPort;
+}
+
+void toPayload(const AppSettings& source, PersistedSettingsPayloadV4& target) {
   memset(&target, 0, sizeof(target));
   copyText(target.deviceName, source.deviceName);
   copyText(target.language, source.language);
@@ -293,8 +357,8 @@ bool SettingsManager::load(AppSettings& out) {
   uint16_t sourceSchema = header.schema;
 
   if (header.schema == SETTINGS_SCHEMA_VERSION &&
-      header.payloadSize == sizeof(PersistedSettingsPayloadV3)) {
-    PersistedSettingsRecordV3 record{};
+      header.payloadSize == sizeof(PersistedSettingsPayloadV4)) {
+    PersistedSettingsRecordV4 record{};
     EEPROM.get(0, record);
     if (!recordValid(record)) {
       validateAndNormalize(out);
@@ -304,6 +368,18 @@ bool SettingsManager::load(AppSettings& out) {
     }
     fromPayload(record.payload, out);
   } else if (header.schema == PREVIOUS_SETTINGS_SCHEMA_VERSION &&
+             header.payloadSize == sizeof(PersistedSettingsPayloadV3)) {
+    PersistedSettingsRecordV3 previous{};
+    EEPROM.get(0, previous);
+    if (!recordValid(previous)) {
+      validateAndNormalize(out);
+      setError("Previous settings failed CRC validation; defaults are active");
+      appLog.warn("SETTINGS", lastError_);
+      return true;
+    }
+    fromPayload(previous.payload, out);
+    migrate = true;
+  } else if (header.schema == DISPLAY_GPIO_SETTINGS_SCHEMA_VERSION &&
              header.payloadSize == sizeof(PersistedSettingsPayloadV2)) {
     PersistedSettingsRecordV2 previous{};
     EEPROM.get(0, previous);
@@ -375,10 +451,10 @@ bool SettingsManager::save(const AppSettings& input) {
     return false;
   }
 
-  PersistedSettingsRecordV3 record{};
+  PersistedSettingsRecordV4 record{};
   record.magic = EEPROM_SETTINGS_MAGIC;
   record.schema = SETTINGS_SCHEMA_VERSION;
-  record.payloadSize = sizeof(PersistedSettingsPayloadV3);
+  record.payloadSize = sizeof(PersistedSettingsPayloadV4);
   toPayload(normalized, record.payload);
   record.crc32 = payloadCrc(record.schema, record.payloadSize, record.payload);
 
@@ -389,7 +465,7 @@ bool SettingsManager::save(const AppSettings& input) {
     return false;
   }
 
-  PersistedSettingsRecordV3 verify{};
+  PersistedSettingsRecordV4 verify{};
   EEPROM.get(0, verify);
   if (!recordValid(verify) || verify.crc32 != record.crc32) {
     setError("EEPROM verification failed");
@@ -486,8 +562,8 @@ bool SettingsManager::validateAndNormalize(AppSettings& s) {
   }
   s.displayUpdateMs = constrain(
       s.displayUpdateMs,
-      static_cast<uint16_t>(MIN_DISPLAY_UPDATE_MS),
-      static_cast<uint16_t>(MAX_DISPLAY_UPDATE_MS));
+      MIN_DISPLAY_UPDATE_MS,
+      MAX_DISPLAY_UPDATE_MS);
   s.alternateSeconds = constrain(
       s.alternateSeconds,
       static_cast<uint16_t>(MIN_ALTERNATE_SECONDS),

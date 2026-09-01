@@ -188,7 +188,7 @@ Persistent display settings:
 - On/off
 - Brightness 0–7
 - Selected metric
-- Refresh interval
+- Refresh interval (250–200,000 ms / up to 200 seconds)
 - Metric-only mode
 - Clock-only mode
 - Alternating metric/clock mode
@@ -368,7 +368,8 @@ A cache-busting query parameter is added to manifest and firmware requests so a 
 - v0.1.12 prevents the slow API client from starving BearSSL/TLS during OTA checks by releasing API socket/buffer resources before OTA.
 - v0.1.13 rounds the external air temperature to a whole degree with a degree symbol and makes alternate mode show the metric for exactly one second while the configured interval applies only to the clock.
 - v0.1.14 keeps the external API suspended across the OTA check/install handoff to protect ESP8266 heap for BearSSL.
-- **v0.1.15 formats the API-provided last measurement timestamp as a localized date and time on the Status page.**
+- v0.1.15 formats the API-provided last measurement timestamp as a localized date and time on the Status page.
+- **v0.1.16 raises the TM1637 display refresh maximum to 200,000 ms (200 seconds) and migrates `displayUpdateMs` to 32-bit EEPROM storage.**
 
 Do not run a full flash erase if existing EEPROM settings should be retained.
 
@@ -400,7 +401,7 @@ The project starts at **v0.1.0**.
 `src/version.h` is the firmware's version source of truth:
 
 ```cpp
-#define FW_VERSION "v0.1.15"
+#define FW_VERSION "v0.1.16"
 ```
 
 The tag validation step prevents a GitHub release whose tag differs from the compiled firmware version. Every published functional change must receive a new version; never replace behavior under an already published version.

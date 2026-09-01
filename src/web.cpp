@@ -381,7 +381,7 @@ void WebService::handleDisplaySettingsPost() {
   const int brightness = root["brightness"].as<int>();
   const int clkGpio = root["clkGpio"].is<int>() ? root["clkGpio"].as<int>() : settings.displayClkGpio;
   const int dioGpio = root["dioGpio"].is<int>() ? root["dioGpio"].as<int>() : settings.displayDioGpio;
-  const int updateMs = root["updateMs"].as<int>();
+  const uint32_t updateMs = root["updateMs"].as<uint32_t>();
   const int alternateSeconds = root["alternateSeconds"].is<int>()
                                    ? root["alternateSeconds"].as<int>()
                                    : settings.alternateSeconds;
@@ -430,7 +430,7 @@ void WebService::handleDisplaySettingsPost() {
   next.displayDioGpio = static_cast<uint8_t>(dioGpio);
   next.selectedMetric = metric;
   next.displayMode = mode;
-  next.displayUpdateMs = static_cast<uint16_t>(updateMs);
+  next.displayUpdateMs = updateMs;
   next.alternateSeconds = static_cast<uint16_t>(alternateSeconds);
 
   if (!settingsManager.save(next)) {

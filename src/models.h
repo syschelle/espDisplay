@@ -116,6 +116,6 @@ struct AppSettings {
   uint8_t displayDioGpio = 12;
   MetricId selectedMetric = MetricId::GridImportW;
   DisplayMode displayMode = DisplayMode::Metric;
-  uint16_t displayUpdateMs = 1000;
+  uint32_t displayUpdateMs = 1000UL;
   uint16_t alternateSeconds = 10;
 };

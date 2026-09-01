@@ -62,9 +62,9 @@ static constexpr uint32_t NTP_RESYNC_INTERVAL_MS = 21600000UL;  // 6 hours
 // Display
 // -----------------------------------------------------------------------------
 static constexpr uint8_t DEFAULT_DISPLAY_BRIGHTNESS = 5;
-static constexpr uint16_t DEFAULT_DISPLAY_UPDATE_MS = 1000;
-static constexpr uint16_t MIN_DISPLAY_UPDATE_MS = 250;
-static constexpr uint16_t MAX_DISPLAY_UPDATE_MS = 10000;
+static constexpr uint32_t DEFAULT_DISPLAY_UPDATE_MS = 1000UL;
+static constexpr uint32_t MIN_DISPLAY_UPDATE_MS = 250UL;
+static constexpr uint32_t MAX_DISPLAY_UPDATE_MS = 200000UL;
 static constexpr uint16_t DEFAULT_ALTERNATE_SECONDS = 10;
 static constexpr uint16_t MIN_ALTERNATE_SECONDS = 2;
 static constexpr uint16_t MAX_ALTERNATE_SECONDS = 120;
@@ -91,8 +91,9 @@ static constexpr bool isRecommendedDisplayGpio(uint8_t gpio) {
 static constexpr size_t EEPROM_SETTINGS_BYTES = 512;
 static constexpr uint32_t EEPROM_SETTINGS_MAGIC = 0x45443832UL;  // "ED82"
 static constexpr uint16_t LEGACY_SETTINGS_SCHEMA_VERSION = 1;
-static constexpr uint16_t PREVIOUS_SETTINGS_SCHEMA_VERSION = 2;
-static constexpr uint16_t SETTINGS_SCHEMA_VERSION = 3;
+static constexpr uint16_t DISPLAY_GPIO_SETTINGS_SCHEMA_VERSION = 2;
+static constexpr uint16_t PREVIOUS_SETTINGS_SCHEMA_VERSION = 3;
+static constexpr uint16_t SETTINGS_SCHEMA_VERSION = 4;
 
 static constexpr size_t LOG_LINE_COUNT = 30;
 static constexpr size_t LOG_LINE_LENGTH = 128;

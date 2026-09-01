@@ -161,7 +161,7 @@ const char INDEX_HTML[] PROGMEM = R"ED8266(
             </div>
             <div class="form-group">
               <label for="displayUpdateMs" data-i18n="display.update">Aktualisierung (ms)</label>
-              <input id="displayUpdateMs" type="number" min="250" max="10000" step="50">
+              <input id="displayUpdateMs" type="number" min="250" max="200000" step="50">
             </div>
             <div class="form-group">
               <label for="displayMode" data-i18n="display.mode">Anzeigemodus</label>

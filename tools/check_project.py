@@ -66,6 +66,7 @@ def test_web_assets() -> None:
     assert '<input id="displayClkGpio" type="number"' in html
     assert '<input id="displayDioGpio" type="number"' in html
     assert '<input id="apiPort" type="number" min="1" max="65535"' in html
+    assert '<input id="displayUpdateMs" type="number" min="250" max="200000"' in html
     assert '<select id="displayClkGpio"' not in html
     assert '<select id="displayDioGpio"' not in html
     assert "String.replace" not in html
@@ -117,6 +118,7 @@ def test_architecture_guards() -> None:
     assert "API_INACTIVITY_TIMEOUT_MS = 60000UL" in config
     assert "API_READ_BUDGET_BYTES = 384" in config
     assert "MAX_EXTERNAL_API_BYTES = 8192" in config
+    assert "MAX_DISPLAY_UPDATE_MS = 200000UL" in config, "display refresh interval must allow up to 200 seconds"
     assert "HTTPClient" not in external, "external API polling must not use blocking ESP8266HTTPClient"
     assert ".GET()" not in external and "getString()" not in external, "external API polling must remain cooperative"
     assert "RequestState::Headers" in external and "RequestState::Body" in external
@@ -162,9 +164,12 @@ def test_architecture_guards() -> None:
     web = (SRC / "web.cpp").read_text(encoding="utf-8")
     assert "displayClkGpio" in models and "displayDioGpio" in models
     assert "LEGACY_SETTINGS_SCHEMA_VERSION = 1" in config
-    assert "PREVIOUS_SETTINGS_SCHEMA_VERSION = 2" in config
-    assert "SETTINGS_SCHEMA_VERSION = 3" in config
-    assert "PersistedSettingsRecordV1" in settings and "PersistedSettingsRecordV2" in settings and "PersistedSettingsRecordV3" in settings
+    assert "DISPLAY_GPIO_SETTINGS_SCHEMA_VERSION = 2" in config
+    assert "PREVIOUS_SETTINGS_SCHEMA_VERSION = 3" in config
+    assert "SETTINGS_SCHEMA_VERSION = 4" in config
+    assert "uint32_t displayUpdateMs = 1000UL" in models
+    assert "PersistedSettingsPayloadV4" in settings and "uint32_t displayUpdateMs;" in settings
+    assert all(token in settings for token in ["PersistedSettingsRecordV1", "PersistedSettingsRecordV2", "PersistedSettingsRecordV3", "PersistedSettingsRecordV4"])
     assert "apiPort" in models and "apiPort" in settings
     assert "Settings migrated from schema %u to schema %u" in settings
     assert "TM1637 initialized: CLK GPIO%u, DIO GPIO%u" in display
@@ -186,6 +191,9 @@ def test_architecture_guards() -> None:
     assert 'timeService.getLocalTm(validTimeProbe)' in display, "display must gate normal rendering until local time is valid"
     main_cpp = (SRC / "main.cpp").read_text(encoding="utf-8")
     assert main_cpp.index("displayService.begin(settings)") < main_cpp.index("networkService.begin(settings)"), "Conn must appear before Wi-Fi/NTP boot waits"
+    assert 'const uint32_t updateMs = root["updateMs"].as<uint32_t>();' in web
+    assert 'next.displayUpdateMs = updateMs;' in web
+    assert 'static_cast<uint16_t>(updateMs)' not in web, "200-second display interval must not be truncated to 16 bits"
     assert 'root["clkGpio"]' in web and 'root["dioGpio"]' in web
     assert 'root["apiPort"]' in web and 'settings.apiPort' in web
     assert 'externalApiService.requestInProgress()' in web
